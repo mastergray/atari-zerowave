@@ -40,19 +40,14 @@ PrepareRender:
     lda FrameCounter
     and #1
     sta FramePhase
-    lda FrameCounter
-    lsr
-    lsr
-    and #7
-    tax
-    lda BeamColors,x      ; one uniform color for the entire beam this frame
+    lda BeamDrawColor     ; uniform held color or fixed-hue release fade
     sta ArenaColor
     lda FramePhase
     beq .beamFrame
     ldx BombTimer
     bne .effectFrame
 .beamFrame:
-    ldy Direction
+    ldy BeamDrawDirection
     cpy #8
     bcc .patternReady
     ldy #8                ; neutral

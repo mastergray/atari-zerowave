@@ -43,6 +43,7 @@ def check():
         "bank_headroom_before_tail": [0xff80 - sym[f"Bank{bank}End"] for bank in (0, 1)],
         "beam_streams": manifest["unique_beam_streams"],
         "playfield_streams": manifest["unique_playfield_streams"],
+        "beam_release_fade_updates": manifest["tuning"]["beam_fade_start"],
         "bomb_radii": manifest["bomb_radii"],
         "bomb_animation_frames": manifest["bomb_animation_frames"],
         "reference_commit": "fb68a689d3fa6346696dd2310e5dd3d167c065a1",

@@ -64,6 +64,8 @@ class CartridgeTests(unittest.TestCase):
             machine = self.machine(bank)
             for _ in range(4):
                 self.assertEqual(machine.frame(), 262 * 76)
+                self.assertEqual(machine.value("BeamDrawDirection"), 255)
+                self.assertEqual(machine.value("BeamFadeTimer"), 0)
             self.assertEqual(machine.bus.ram[0x68:0x70], bytes([0xa5] * 8))
             self.assertGreaterEqual(machine.min_sp, 0xef)
 
@@ -180,7 +182,7 @@ class CartridgeTests(unittest.TestCase):
 
     def test_beam_has_no_blank_frames_or_disabled_input_or_sound(self):
         machine = self.machine()
-        for direction, mask in enumerate((1, 9, 8, 10, 2, 6, 4, 5, 0)):
+        for direction, mask in enumerate((1, 9, 8, 10, 2, 6, 4, 5)):
             patterns = []
             for _ in range(2):
                 machine.bus.events.clear()
@@ -191,6 +193,74 @@ class CartridgeTests(unittest.TestCase):
                 self.assertEqual(machine.bus.tia[0x19], 2 if mask else 0)
                 self.assert_rendered_pattern(machine, pattern)
             self.assertEqual(patterns, [direction, direction])
+
+    def test_release_fades_last_direction_and_hue_for_fifteen_frames(self):
+        for direction, mask in enumerate((1, 9, 8, 10, 2, 6, 4, 5)):
+            machine = self.machine()
+            machine.poke("FrameCounter", direction * 4)
+            machine.frame(mask)
+            hue = machine.value("ArenaColor") & 0xf0
+            self.assertEqual(machine.value("BeamFadeTimer"), 15)
+            for level in range(15, 0, -1):
+                machine.bus.events.clear()
+                self.assertEqual(machine.frame(), 262 * 76)
+                self.assertEqual(machine.value("Direction"), 255)
+                self.assertEqual(machine.value("BeamEnabled"), 0)
+                self.assertEqual(machine.bus.tia[0x19], 0)
+                self.assertEqual(machine.value("BeamFadeTimer"), level - 1)
+                self.assertEqual(machine.value("DisplayPattern"), direction)
+                self.assertEqual(machine.value("ArenaColor"), hue | level)
+                self.assert_rendered_pattern(machine, direction)
+                self.assert_arena_colors_and_sprites(machine)
+            for _ in range(3):
+                machine.frame()
+                self.assertEqual(machine.value("DisplayPattern"), 8)
+                self.assertEqual(machine.value("BeamDrawDirection"), 255)
+                self.assertEqual(machine.value("ArenaColor"), 0)
+
+    def test_reaim_and_reset_cancel_fading_without_trails(self):
+        machine = self.machine()
+        machine.frame(9)
+        for _ in range(5):
+            machine.frame()
+        self.assertEqual(machine.value("ArenaColor") & 15, 11)
+        machine.frame(4)
+        self.assertEqual(machine.value("BeamEnabled"), 1)
+        self.assertEqual(machine.value("DisplayPattern"), 6)
+        self.assertEqual(machine.value("ArenaColor") & 15, 14)
+        self.assertEqual(machine.value("BeamFadeTimer"), 15)
+        machine.frame(15)  # opposing axes cancel, initiating the same release fade
+        self.assertEqual(machine.value("BeamEnabled"), 0)
+        self.assertEqual(machine.value("DisplayPattern"), 6)
+        machine.frame(reset=True)
+        self.assertEqual(machine.value("BeamFadeTimer"), 0)
+        self.assertEqual(machine.value("DisplayPattern"), 8)
+        machine.frame()
+        self.assertEqual(machine.value("DisplayPattern"), 8)
+
+    def test_bomb_and_two_enemies_continue_during_release_fade(self):
+        machine = self.machine()
+        for _ in range(8):
+            machine.frame(select=True)
+            machine.frame()
+        machine.frame(8)
+        hue = machine.value("ArenaColor") & 0xf0
+        selected = []
+        for elapsed in range(18):
+            machine.bus.events.clear()
+            self.assertEqual(machine.frame(fire=True), 262 * 76)
+            self.assertEqual(machine.value("BeamEnabled"), 0)
+            self.assertEqual(machine.value("BombCount"), 1)
+            self.assertEqual(machine.value("BeamFadeTimer"), max(0, 14 - elapsed))
+            if machine.value("FramePhase") and elapsed < 16:
+                self.assertEqual(machine.value("DisplayPattern"), 9 + elapsed // 4)
+                self.assertEqual(machine.value("ArenaColor"), 46)
+            else:
+                self.assertEqual(machine.value("DisplayPattern"), 2 if elapsed < 15 else 8)
+                self.assertEqual(machine.value("ArenaColor"), hue | (15 - elapsed) if elapsed < 15 else 0)
+            selected.append(machine.value("SelectedSlot"))
+            self.assert_rendered_pattern(machine, machine.value("DisplayPattern"))
+        self.assertTrue(all(a != b for a, b in zip(selected, selected[1:])))
 
     def test_beam_changes_color_over_time_but_stays_uniform_within_each_frame(self):
         machine = self.machine()

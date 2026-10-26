@@ -26,6 +26,7 @@ Reset:
     jsr SampleInput
     lda CurrentButtons
     sta PreviousButtons
+    jsr UpdateBeamVisual
     lda #2
     sta VBLANK
     jmp DisplayEntry
@@ -68,6 +69,7 @@ UpdatePrototype:
     sta BombCooldown
     sta BombTimer
     sta BombCount
+    sta BeamFadeTimer
     jsr LoadFixture
     jmp .finish
 .notReset:
@@ -98,6 +100,7 @@ UpdatePrototype:
 .finish:
     lda CurrentButtons
     sta PreviousButtons
+    jsr UpdateBeamVisual
     ; Minimal attack feedback; no music/event queue.
     lda #4
     sta AUDC0
@@ -117,6 +120,44 @@ UpdatePrototype:
     lda #0
 .bombVolume:
     sta AUDV1
+    rts
+
+; Visual state only: active beam stays bright; neutral stops gameplay/audio now
+; while the last direction fades. A/X clobbered, no scratch, under 60 cycles.
+; Laser Blast's decay is a low-nibble countdown 15..1, then hidden at zero.
+; TIA ignores color bit 0, so brightness steps are 14,14,12,12,...,2,2,0.
+UpdateBeamVisual:
+    SUBROUTINE
+    lda BeamEnabled
+    beq .released
+    lda #BEAM_FADE_START
+    sta BeamFadeTimer
+    lda Direction
+    sta BeamDrawDirection
+    lda FrameCounter
+    lsr
+    lsr
+    and #7
+    tax
+    lda BeamColors,x
+    sta BeamDrawColor
+    and #$f0
+    sta BeamFadeHue
+    rts
+.released:
+    lda BeamFadeTimer
+    beq .dark
+    ora BeamFadeHue
+    sta BeamDrawColor
+    dec BeamFadeTimer
+    lda LastDirection
+    sta BeamDrawDirection
+    rts
+.dark:
+    lda #0
+    sta BeamDrawColor
+    lda #$ff
+    sta BeamDrawDirection
     rts
 
 ; Select a deterministic static layout. Clobbers A/X/Y, no scratch.

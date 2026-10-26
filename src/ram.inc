@@ -32,7 +32,11 @@ SelectedSlot    ds 1
 HudColor        ds 1
 ArenaColor      ds 1
 DisplayPattern  ds 1
-RenderReserved  ds 10
+BeamFadeTimer   ds 1
+BeamFadeHue     ds 1
+BeamDrawDirection ds 1
+BeamDrawColor   ds 1
+RenderReserved  ds 6
 CurrentButtons  ds 1
 PressedButtons  ds 1
 Temp            ds 1

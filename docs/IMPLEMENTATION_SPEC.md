@@ -47,7 +47,7 @@ Invert and shift the direction nibble to obtain `up=1`, `down=2`, `left=4`, `rig
 | NW | 5 | 7 |
 | Neutral | 0 | 255 |
 
-Holding a direction enables continuous beam damage in that direction. The graphic stays visible as a single solid beam whose entire color changes over time; during bombs it shares alternate frames with the ring. Diagonals produce one diagonal beam. Changing direction changes the next visible beam phase; neutral disables both its graphic and damage. Remember the last valid direction separately if needed for a HUD cue. Do not require button input to fire the beam.
+Holding a direction enables continuous beam damage in that direction. The graphic stays visible as a single solid beam whose entire color changes over time; during bombs it shares alternate frames with the ring. Diagonals produce one diagonal beam. Neutral immediately disables damage and sound, but the last beam fades for 15 updates with its direction and hue fixed. Changing direction replaces any afterglow with a bright beam on the next visible beam phase. Keep the last valid direction and visual state separate from attack input. Do not require button input to fire the beam.
 
 A button press edge detonates a bomb only when its cooldown is zero. Holding the button never repeats, and presses during cooldown are discarded rather than queued. The beam continues during a bomb. Maintain button history even when an action is rejected or the game is between levels.
 
@@ -69,6 +69,7 @@ Game geometry uses an eight-way lane and a radial distance, not free Cartesian m
 | `BOMB_COOLDOWN` | 60 updates | Approximately one second at the target frame rate |
 | `BOMB_ANIMATION_FRAMES` | 16 updates | Four expanding ring sizes, four updates each |
 | `BOMB_SOUND_FRAMES` | 6 updates | Short noise envelope independent of animation |
+| `BEAM_FADE_START` | 15 | Initial release brightness; countdown through 1, then hide |
 | `LEVEL_BREAK` | 60 updates | Pause after a cleared level |
 | `SQUARE_SPAWN_GAP` | 72 updates | Minimum spacing between square spawns |
 
@@ -87,7 +88,7 @@ For radius comparisons, explicitly compare both bytes: `24.00` is inside the bom
 | Triangle | Destroy on matching lane within beam range | Destroy | Lose one HP | 10 |
 | Square | No effect; does not block the ray | Destroy | Lose one HP | 25 |
 
-The beam pierces: all eligible triangles on its selected lane can be destroyed in the same update, including frames when the beam graphic is omitted. A bomb checks every active slot once and destroys both types within radius. Its expanding outline is cosmetic and causes no subsequent damage; there is no moving damage front. A square outside the radius survives.
+The beam pierces: all eligible triangles on its selected lane can be destroyed in the same update, including frames when the beam graphic is omitted. Gate damage on `BeamEnabled` and use `Direction`; the release afterglow never deals damage. A bomb checks every active slot once and destroys both types within radius. Its expanding outline is cosmetic and causes no subsequent damage; there is no moving damage front. A square outside the radius survives.
 
 Process bomb damage before beam damage, then process center contacts. Immediately mark destroyed enemies inactive; an enemy hit by both weapons earns score and quota credit exactly once. Attacks therefore win a same-update tie with reaching the turret. Contacted enemies are removed without score or quota credit. Each surviving contact costs one HP, saturating at zero; there is no invulnerability mechanic in the baseline.
 
@@ -121,7 +122,7 @@ One game update produces the state for the next visible frame:
 5. Resolve bomb kills, beam kills, and surviving center contacts in that order.
 6. Resolve death, quota completion, and level-break entry.
 7. If still playing with quota remaining, attempt at most one spawn when due.
-8. Select sound events and save input history. Prepare display data before the next visible arena.
+8. Update beam visual state, select sound events, and save input history. In `PLAY`, arm the fade while held and advance it on neutral updates; clear it on reset or leaving play. Prepare display data before the next visible arena.
 
 New spawns cannot move or be attacked until the following update; spawning therefore cannot grant a same-update kill. Their first drawing opportunity follows the enemy omission limit below. Timer semantics mean a bomb accepted at update `t` can next be accepted at `t+60`, with a new press edge; `t+59` is too early.
 
@@ -182,7 +183,7 @@ After level 8, reuse the final difficulty row. Track a displayed level number up
 
 Share the playfield between the beam and bomb outline, with player 0 for the turret and player 1 for enemies. Leave missiles and ball disabled initially. Keep the background black; use cycling rainbow colors for beam frames and fixed gold for ring frames. HUD graphics occupy a separate vertical region.
 
-The beam uses eight opaque raster patterns, one selected by direction. Both halves of the playfield must be independently controlled so a right shot cannot create a left copy. Repeat each logical row across two scanlines in the same color. Cycle the entire beam through eight hues, one every four frames, at luminance 14. Set the color before the arena and keep it fixed across all rows; there is no spatial gradient or separate glow layer. Horizontal resolution remains four color clocks per playfield cell.
+The beam uses eight opaque raster patterns, one selected by direction. Both halves of the playfield must be independently controlled so a right shot cannot create a left copy. Repeat each logical row across two scanlines in the same color. While held, cycle the entire beam through eight hues, one every four frames, at luminance 14. On release, freeze the last hue and direction and count brightness from 15 through 1, once per update, then hide the pattern. This follows Laser Blast's decay cadence; [kernel notes](KERNEL_TIMING.md#effect-scheduling) record the reference and TIA luminance behavior. Re-aiming cancels the fade immediately. Set the color before the arena and keep it fixed across all rows; there is no spatial gradient or separate glow layer. Horizontal resolution remains four color clocks per playfield cell.
 
 Keep the turret visible every frame. Draw the beam on both frame phases normally. During a bomb, odd frames draw the ring and even frames draw the beam, giving each effect about 30 appearances per second without adding omissions to enemy graphics. Ring colors stay gold on both physical scanlines. Input, damage, and beam audio remain independent of this display phase. Use no transparency or trails.
 
@@ -230,7 +231,7 @@ The initial map uses the full available address range, with explicit reserve and
 | `$F0–$FF` | 16 | Stack reservation |
 | Total | 128 | Includes stack and margin |
 
-The 24 renderer bytes currently hold four two-byte playfield pointers, a two-byte sprite pointer, selected slot, HUD color, arena color, display-pattern ID, and ten reserved bytes. Later sprite reuse must fit or explicitly revise this allocation. Scratch can be reused only across nonoverlapping lifetimes; record clobbered registers and scratch in each routine's header. ROM switching does not preserve a second copy of RAM.
+The 24 renderer bytes currently hold four two-byte playfield pointers, a two-byte sprite pointer, selected slot, HUD color, arena color, display-pattern ID, four beam visual bytes (fade timer, frozen hue, draw direction, draw color), and six reserved bytes. Later sprite reuse must fit or explicitly revise this allocation. Scratch can be reused only across nonoverlapping lifetimes; record clobbered registers and scratch in each routine's header. ROM switching does not preserve a second copy of RAM.
 
 Initialize the stack at `$FF` and keep peak stack consumption within 16 bytes, including nested subroutines and any explicit pushes. Verify the high-water mark in the busiest frame. Increasing storage beyond four slots requires a revised map; it is not enabled by changing only a level row.
 
@@ -286,6 +287,7 @@ Host tests verify the integer model and generated data; they do not prove the as
 | Area | Required cases and result |
 | --- | --- |
 | Input | All eight directions, neutral, and opposite-axis combinations decode deterministically; neutral disables beam damage and sound. |
+| Release fade | Held beam stays bright; neutral freezes its hue/direction for the 15-update countdown, then clears it. Re-aiming restores brightness immediately. Reset clears afterglow. Bomb animation and enemy scheduling continue during the fade. |
 | Button edges | Held fire causes one bomb; cooldown presses do not queue; activation at `t+59` fails and a fresh press at `t+60` succeeds. Start/reset/transition inputs do not create accidental bombs. |
 | Beam | Matching-lane triangles die, wrong lanes survive, squares remain, and a square does not block a triangle behind it. Beam pattern covers its legal lane positions. |
 | Bomb boundary | With zero movement in the fixture, `24.00` dies and `24.01` survives; square fill state agrees. Both types can die in one bomb. |

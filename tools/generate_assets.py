@@ -106,11 +106,12 @@ def generate():
     assert animation_frames < tuning["bomb_cooldown"] <= 255
     assert len(tuning["beam_colors"]) == 8
     assert all(0 <= c <= 255 and c & 15 == 14 for c in tuning["beam_colors"])
+    assert 1 <= tuning["beam_fade_start"] <= 15
     radii = bomb_radii(tuning)
     assert radii == sorted(set(radii)) and radii[0] > 0
     OUT.mkdir(parents=True, exist_ok=True)
     constants = ["; Generated; edit config/tuning.json instead."]
-    for name in ("bomb_cooldown", "bomb_sound_frames", "bomb_radius", "arena_rows"):
+    for name in ("bomb_cooldown", "bomb_sound_frames", "bomb_radius", "arena_rows", "beam_fade_start"):
         constants.append(f"{name.upper()} = {tuning[name]}")
     constants.append(f"BOMB_ANIMATION_FRAMES = {animation_frames}")
     for name, value in tuning["colors"].items():
@@ -134,7 +135,6 @@ def generate():
             labels.append(streams[values])
         references.append(labels)
     render = ["; Generated display data. All indexed loads are page-safe.\n"]
-    render.append(byte_lines("BeamColors", tuning["beam_colors"]))
     # Timer counts down. Zero is neutral; 16..13 select the smallest ring, etc.
     render.append(byte_lines("BombPatternByTimer", [8] + [
         9 + (animation_frames - timer) // tuning["bomb_stage_frames"]
@@ -173,7 +173,9 @@ def generate():
                 values = (0, 0, 76, 38)
             for field, value in zip(("Flags", "Radius", "X", "Y"), values):
                 fixture_data[f"Fixture{field}{slot}"].append(value)
-    (OUT / "fixtures.inc").write_text("".join(byte_lines(name, values) for name, values in fixture_data.items()))
+    # Beam palette belongs to bank 0: game logic freezes its hue on release.
+    (OUT / "fixtures.inc").write_text(byte_lines("BeamColors", tuning["beam_colors"]) +
+                                      "".join(byte_lines(name, values) for name, values in fixture_data.items()))
     manifest = {"unique_beam_streams": beam_streams, "unique_playfield_streams": len(streams),
                 "bomb_radii": radii, "bomb_animation_frames": animation_frames,
                 "patterns": patterns, "fixtures": fixtures, "tuning": tuning}

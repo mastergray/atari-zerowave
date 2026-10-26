@@ -36,10 +36,10 @@ custom mappings can be changed in its input settings.
 
 | Control | Stella key | Prototype behavior |
 | --- | --- | --- |
-| Joystick direction | Arrow keys; combine two for diagonals | Hold to fire a solid color-cycling beam; release to stop |
+| Joystick direction | Arrow keys; combine two for diagonals | Hold to fire a solid color-cycling beam; release to fade |
 | Joystick button | Space | Expanding bomb ring and sound on a fresh press, if ready |
 | SELECT | F1 | Advance to the next static test layout |
-| RESET | F2 | Return to the first layout and clear bomb state |
+| RESET | F2 | Return to the first layout and clear bomb state and beam afterglow |
 
 The `BOMB` label is green when ready and amber during the 60-update cooldown.
 Holding the button produces one bomb; pressing during cooldown does not queue
@@ -49,13 +49,18 @@ ring and beam frames alternate. Outside bombs the beam stays visible every frame
 The entire beam uses one bright color at a time, cycling through eight colors
 at one step per four updates. There are no stacked gradient lines or separate
 glow stripes. Its input and sound remain active throughout while a direction is
-held. RESET with fire held does not trigger a bomb.
+held. Releasing the stick stops firing and sound immediately, while the last beam
+holds its hue and dims over 15 frames (about a quarter-second). This uses
+[Laser Blast's brightness countdown](docs/KERNEL_TIMING.md#effect-scheduling).
+Re-aiming immediately replaces the afterglow with a bright beam in the new
+direction. RESET with fire held does not trigger a bomb.
 
 Each logical beam row is drawn twice in the same color; geometry and range are unchanged.
 The playfield still has a four-color-clock minimum horizontal width, so narrower
 vertical beams would need a different graphics technique.
 
-Try bombing while changing direction, and while the stick is neutral. Check
+Try releasing each direction, re-aiming during the fade, and bombing while the
+beam fades. Check
 whether the expanding ring is easy to see and whether the beam remains
 easy to aim. The ring is visual feedback for the planned immediate, fixed-radius
 damage; it does not introduce a moving damage front or a lingering blast.
@@ -71,12 +76,14 @@ appearances further.
 
 ## Validation and development
 
-`make check` runs 17 tests covering generated geometry, all joystick combinations,
+`make check` runs 20 tests covering generated geometry, all joystick combinations,
 button edges and exact cooldown boundaries, both startup banks, stack/guard
 integrity, fixed frame lengths, kernel write deadlines, and display fairness.
 Tests check every animation stage for presses on either frame phase, actual
 playfield data, uniform color across the entire beam, sprite rows, every palette phase,
-continuous beam state, and the separate short sound envelope.
+continuous beam state, and the separate short sound envelope. Release tests cover
+all eight directions and hues, the exact fade countdown, immediate sound cutoff,
+re-aiming, reset, and simultaneous bombing with two enemies.
 The CPU tests execute the assembled cartridge using py65 and a limited VCS bus;
 they do not simulate TIA pixels.
 
@@ -85,9 +92,10 @@ xvfb-run -a make stella-check
 ```
 
 This runs the ROM in an isolated Stella window, checks input/bomb state and
-262-line timing, and saves 39 TIA snapshots: neutral, both phases of all eight
+262-line timing, and saves 56 TIA snapshots: neutral, both phases of all eight
 directions, all 16 bomb frames, and both phases of the three overlap layouts
-during the largest ring. Results are indexed by
+during the largest ring, plus the last held beam, all 15 release frames, and the
+cleared frame. Results are indexed by
 `build/stella/latest.json`. Validated with Stella 6.0.2. See
 [kernel timing notes](docs/KERNEL_TIMING.md) for the measured budgets and limits.
 Television flicker, real joystick diagonals, and sound still need a hardware pass.

@@ -94,7 +94,22 @@ def main():
         capture(f"{layout}-1")
         commands.append("joy0fire #1")
         frame(48)  # release and recover before the next layout's bomb
-    commands.extend(["ram SWBCNT #0", "print _fcount"])
+    commands.append("ram SWBCNT #0")
+    # Release after holding NW. The first stop shows the last bright frame;
+    # the following 15 captures show the original Laser Blast decay cadence.
+    for direction in ("up", "down", "left", "right"):
+        commands.append(f"joy0{direction} #1")
+    frame()
+    commands.extend(["print *BeamEnabled", "print *BeamFadeHue"])
+    capture("fade-held")
+    for elapsed in range(15):
+        frame()
+        commands.append("print *BeamEnabled")
+        capture(f"fade-{elapsed:02}")
+    frame()
+    commands.append("print *BeamEnabled")
+    capture("fade-finished")
+    commands.append("print _fcount")
     (run / "commands.script").write_text("\n".join(commands) + "\n")
     # Stella 6 runs autoexec before the debugger display is fully initialized.
     # Send commands after its window opens instead of trusting startup snapshots.
@@ -176,6 +191,12 @@ def main():
     assert bomb_patterns.count(7) == 8, bomb_patterns
     for i in (33, 35, 37):
         assert sorted(patterns[i:i + 2]) == [7, 12], patterns
+    fade_hue = values("*BeamFadeHue")[0]
+    assert patterns[39:] == [7] * 16 + [8], patterns[39:]
+    assert colors[39] & 15 == 14 and colors[39] & 0xf0 == fade_hue, colors[39:]
+    assert colors[40:55] == [fade_hue | level for level in range(15, 0, -1)], colors[40:55]
+    assert colors[55] == 0, colors[55]
+    assert values("*BeamEnabled") == [0] * 17, values("*BeamEnabled")
     assert all(color == 46 for pattern, color in zip(patterns, colors) if pattern >= 9), colors
     cycles = values("_cycleslo")
     assert len(cycles) == len(advances), (cycles, advances)
@@ -183,7 +204,8 @@ def main():
     report = {"directory": str(run.relative_to(ROOT)), "snapshots": dict(zip(labels, [p.name for p in snapshots])), "session": transcript.name,
               "frame_lines": 262, "cycles_per_frame": 262 * 76, "direction_ids": values("*Direction"),
               "bomb_count_after_held_button": values("*BombCount")[1],
-              "display_patterns": dict(zip(labels, patterns)), "arena_colors": dict(zip(labels, colors))}
+              "display_patterns": dict(zip(labels, patterns)), "arena_colors": dict(zip(labels, colors)),
+              "fade_frames": 15, "fade_beam_enabled": False}
     (out / "latest.json").write_text(json.dumps(report, indent=2) + "\n")
     print(f"Stella executed the scenarios and captured {len(snapshots)} TIA images in {run}")
     print(f"Debugger results: {transcript}")

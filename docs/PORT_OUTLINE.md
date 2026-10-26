@@ -17,7 +17,9 @@ bomb outline. They alternate display frames while the bomb animates, preserving
 continuous beam state and the existing enemy schedule. The ring is cosmetic;
 the planned damage remains immediate and limited to a fixed radius.
 Outside bombs the beam stays visible as one solid color, with the whole beam
-cycling through bright colors over time. There are no stacked gradient lines.
+cycling through bright colors over time. On release it holds its last hue and
+direction and fades for 15 frames, with damage and sound already stopped.
+Re-aiming replaces that afterglow immediately. There are no stacked gradient lines.
 
 ## What to cut, and what replaces it
 
@@ -27,7 +29,7 @@ cycling through bright colors over time. There are no stacked gradient lines.
 | Thin, smoothly drawn beam and continuously rotating player polygon | A solid color-cycling ray and a small stationary turret symbol | Preserves readable aim while simplifying drawing. Diagonals look stepped; horizontal resolution remains four color clocks, with each logical row drawn twice. |
 | Free-moving enemies anywhere in the arena | Eight straight approach lanes aligned with the beam | No targets between firing directions; one shared movement rule and simple hit tests. Free-moving enemies are not implemented in the source yet. |
 | A large simultaneous swarm from the outset | **Two active enemies for the prototype and opening levels**, with higher caps in later levels after validation | Reduces initial display conflicts and flicker while leaving a clear path to denser encounters. Two is a starting choice, not an Atari hardware maximum. |
-| Sweeping filled sectors, lingering trails, transparency, and accumulated effects | Only the currently active beam | Removes overlapping graphics and effect history without sacrificing directional firing. |
+| Sweeping filled sectors, lingering trails, transparency, and accumulated effects | One beam, with a short cosmetic fade on release | Removes overlapping graphics and direction history without sacrificing directional firing. |
 | Hold-to-charge bomb, growing charge circle, and compression animation | One bomb strength, fired on button press | Simplifies input and keeps the bomb immediate. Charging is technically plausible, but unnecessary for the first game. |
 | The 24-ring bomb sequence and smooth circular outlines | One coarse outline expanding through four sizes, a noise burst, and immediate local damage | Precomputed outlines share alternate frames with the beam; no accumulated rings or trails. |
 | Shifters, reflectors, reflected shots, and special movement rules | Triangle and square enemies using the same approach behavior | Keeps a reason to choose weapons while limiting combat state and extra moving objects. These advanced types are only design intentions in the checkout. |
