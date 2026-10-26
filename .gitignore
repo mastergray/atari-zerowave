@@ -1,0 +1,31 @@
+# AI and environment metadata
+.claude/
+.agents/
+.codex/
+.aws/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs and secrets
+*.log
+.env
+
+# Local toolchain, generated ROMs, emulator state, and Python caches
+.tools/
+build/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Independent source-game checkout; pinned in docs/PORT_OUTLINE.md
+res/
