@@ -170,7 +170,7 @@ def main():
     for direction in range(8):
         start = 1 + direction * 2
         assert patterns[start:start + 2] == [direction, direction], patterns
-        assert sorted(color & 15 for color in colors[start:start + 2]) == [10, 14], colors
+        assert all(color & 15 == 14 for color in colors[start:start + 2]), colors
     bomb_patterns = patterns[17:33]
     assert [p for p in bomb_patterns if p >= 9] == [9, 9, 10, 10, 11, 11, 12, 12], bomb_patterns
     assert bomb_patterns.count(7) == 8, bomb_patterns

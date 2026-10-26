@@ -11,8 +11,7 @@
   "bomb_stages": 4,
   "bomb_stage_frames": 4,
   "bomb_sound_frames": 6,
-  "beam_core_colors": [14, 174, 142, 110, 78, 46, 206, 222],
-  "beam_glow_colors": [70, 102, 134, 166, 198, 38, 54, 86],
+  "beam_colors": [14, 174, 142, 110, 78, 46, 206, 222],
   "colors": {
     "turret": 14,
     "triangle": 206,

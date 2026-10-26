@@ -33,7 +33,7 @@ models the behavior in [Stella's RIOT implementation](https://github.com/stella-
 
 The following are CPU cycles at instruction completion, counted from WSYNC
 release. Both physical scanlines of each logical row use the same graphics-write
-schedule, with separate core/glow color values prepared at the end of each line.
+schedule and the same color.
 The playfield is in normal, unreflected mode, with independent writes for its
 left and right halves.
 
@@ -47,22 +47,20 @@ left and right halves.
 | 42 | PF0 | Right beam/ring stream |
 | 50 | PF1 | Right beam/ring stream |
 | 53 | PF2 | Zero for right edge |
-| 66 | COLUPF | Prepare glow after the first line; core after the second |
 
-The first line then reaches WSYNC at cycle 69. The second line decrements Y,
-branches, and reaches WSYNC by cycle 74 (75 if the branch crosses a page).
+The first line then reaches WSYNC at cycle 56. The second line decrements Y,
+branches, and reaches WSYNC by cycle 61 (62 if the branch crosses a page).
 The last row enters overscan instead. X stays zero, allowing three-cycle STX
 instructions for constant-zero PF writes. Reverse row indexing removes the
-separate row-limit comparison, making room for the color work. Playfield,
+separate row-limit comparison. Playfield,
 turret, and sprite data are stored in reverse row order to preserve their screen
 positions. Indexed streams never cross a page during the kernel.
 
-COLUPF changes after the ray's furthest right pixel, preparing the next physical
-scanline without recoloring the end of the current ray. The first line of each
-logical row is a bright core; the second is a dimmer, spatially varying color.
-This changes the bright core's vertical thickness, not the playfield's minimum
-four-color-clock horizontal width. Tests check all graphics/color deadlines and
-the unchanged upright player graphics on all 160 arena lines.
+COLUPF is set during the separator and remains fixed throughout the entire arena.
+The whole beam changes color together between frames, with no scanline gradient
+or separate glow layer. Tests reject any color write during the arena and check
+the upright player graphics on all 160 lines. The playfield's minimum horizontal
+width remains four color clocks; each logical row occupies two physical lines.
 
 Generated rays occupy playfield columns 9 through 31; the rings fit inside that
 span. Left PF0 and right PF2
@@ -93,13 +91,11 @@ phase. The animation lasts 16 updates. Both physical ring lines keep the same
 gold color; the arena background stays black. The outline replaces
 the previous size, so no filled disk or trail accumulates.
 
-The beam core cycles through eight colors at one palette step per four frames,
-with luminance alternating between 14 and 10. Its darker glow uses luminance 6
-and a palette offset by row and animation phase. Both palettes are in
-`config/tuning.json`. Color strips occupy unused tails of two sprite pages;
-the largest glow lookup is offset 164+7+79=250, so reads remain page-safe.
-This preserves the ROM size and previous bank headroom. The appearance is drawn
-by the ROM; it does not require Stella phosphor blending.
+The entire beam cycles through eight colors at one palette step per four frames,
+all at luminance 14. The palette is `beam_colors` in `config/tuning.json`.
+The row-dependent color strips and glow pointer have been removed; two renderer
+RAM bytes return to reserve. The appearance is drawn by the ROM and does not
+require Stella phosphor blending.
 
 This is display-only scheduling: `BeamEnabled` and the beam sound remain active
 while a direction is held, even on its omitted frames. `BombEvent` pulses once
@@ -122,7 +118,7 @@ appear every other frame. No extra flicker phase is added for enemies.
 | Stack | Four bytes observed; 16 reserved |
 | Guard | Eight bytes at `$E8–$EF`, intact in tested runs |
 | Update cost | 190–576 cycles from `GameFrame` to `LogicDone` |
-| Render preparation done | 774–850 cycles from VSYNC line start |
+| Render preparation done | 698–850 cycles from VSYNC line start |
 
 The cost samples cover 374 frames: all 16 direction combinations with button up/
 down in all eleven layouts, plus SELECT edges. They include fixture loads but
@@ -149,8 +145,10 @@ stops at VSYNC, so animation captures wait for a complete newly drawn frame.
 
 The Stella snapshots cover both phases of all eight rays, neutral, every bomb
 animation frame, and target placement during the largest ring. Visual inspection
-confirmed the plasma shading, expanding outline, and both target phases. Pixel
-comparisons against the preceding build found identical bomb-stage captures.
+confirmed the solid beam colors, expanding outline, and both target phases. Pixel
+comparisons found one uniform beam color in each of the 16 direction captures
+and identical pixels in all eleven ring captures compared with the original
+expanding-ring build.
 Real hardware
 flicker and audio remain untested. Advancing
 to three enemies requires vertical sprite reuse and new timing/visibility

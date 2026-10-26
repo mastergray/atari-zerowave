@@ -45,16 +45,7 @@ PrepareRender:
     lsr
     and #7
     tax
-    clc
-    adc #<BeamGlowColors
-    sta GlowColor
-    lda #>BeamGlowColors
-    sta GlowColor+1
-    lda BeamCoreColors,x
-    ldx FramePhase
-    beq .coreReady
-    and #$fa              ; pulse luminance 14 -> 10, never fully off
-.coreReady:
+    lda BeamColors,x      ; one uniform color for the entire beam this frame
     sta ArenaColor
     lda FramePhase
     beq .beamFrame
@@ -71,10 +62,6 @@ PrepareRender:
     tay
     lda #COLOR_BOMB
     sta ArenaColor
-    lda #<BombGlowColors
-    sta GlowColor
-    lda #>BombGlowColors
-    sta GlowColor+1
 .patternReady:
     sty DisplayPattern
     lda PatternLeft1Lo,y

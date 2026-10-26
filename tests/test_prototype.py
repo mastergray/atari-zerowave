@@ -178,7 +178,7 @@ class CartridgeTests(unittest.TestCase):
             self.assertEqual(writes, [(cycle, register, value) for (cycle, register), value
                                      in zip(schedule, rows[line // 2])], (pattern, line))
 
-    def test_beam_pulses_without_blank_frames_or_disabling_input_or_sound(self):
+    def test_beam_has_no_blank_frames_or_disabled_input_or_sound(self):
         machine = self.machine()
         for direction, mask in enumerate((1, 9, 8, 10, 2, 6, 4, 5, 0)):
             patterns = []
@@ -192,26 +192,23 @@ class CartridgeTests(unittest.TestCase):
                 self.assert_rendered_pattern(machine, pattern)
             self.assertEqual(patterns, [direction, direction])
 
-    def test_beam_core_glow_and_sprite_rows_meet_timing(self):
+    def test_beam_changes_color_over_time_but_stays_uniform_within_each_frame(self):
         machine = self.machine()
         tuning = assets.load_config()
         seen_colors = set()
-        # Every hue, both brightness phases, and a counter rollover.
+        # Every hue, both frame phases, and a counter rollover.
         machine.poke("FrameCounter", 248)
         for _ in range(40):
             machine.bus.events.clear()
             self.assertEqual(machine.frame(9), 262 * 76)
-            core = machine.value("ArenaColor")
+            color = machine.value("ArenaColor")
             phase = (machine.value("FrameCounter") >> 2) & 7
-            self.assertEqual(core, tuning["beam_core_colors"][phase] & (0xfa if machine.value("FramePhase") else 0xff))
-            seen_colors.add(core)
+            self.assertEqual(color, tuning["beam_colors"][phase])
+            seen_colors.add(color)
             self.assert_arena_colors_and_sprites(machine)
-        self.assertEqual(len(seen_colors), 16)
+        self.assertEqual(seen_colors, set(tuning["beam_colors"]))
 
     def assert_arena_colors_and_sprites(self, machine):
-        tuning = assets.load_config()
-        phase = (machine.value("FrameCounter") >> 2) & 7
-        ring = machine.value("DisplayPattern") >= 9
         origin = machine.bus.vsync_edges[-1] // 76 * 76
         selected = machine.value("SelectedSlot")
         top = machine.value("EnemyY", selected) if selected != 255 else 0
@@ -220,24 +217,25 @@ class CartridgeTests(unittest.TestCase):
         if kind & 0x40:
             shape = [0x7e] * 4 if machine.value("EnemyRadiusHi", selected) <= 24 else [0x7e, 0x42, 0x42, 0x7e]
         writes = []
+        color = None
         for cycle, register, value in machine.bus.events:
             line = (cycle - origin) // 76 - 72
-            if not 0 <= line < 160 or register not in (0x08, 0x1b, 0x1c):
-                continue
-            row = line // 2
             if register == 0x08:
-                expected = machine.value("ArenaColor") if line % 2 else tuning["beam_glow_colors"][(79 - row + phase) % 8]
-                if ring:
-                    expected = tuning["colors"]["bomb"]
-                self.assertEqual((cycle % 76, value), (66, expected))
-            elif register == 0x1b:
+                # The only arena color setup happens before its first scanline.
+                self.assertFalse(0 <= line < 160, "Unexpected scanline color gradient")
+                color = value
+            if not 0 <= line < 160 or register not in (0x1b, 0x1c):
+                continue
+            self.assertEqual(color, machine.value("ArenaColor"))
+            row = line // 2
+            if register == 0x1b:
                 expected = [0x18, 0x3c, 0x7e, 0x3c][row - 38] if 38 <= row < 42 else 0
                 self.assertEqual((cycle % 76, value), (34, expected))
             else:
                 expected = shape[row - top] if selected != 255 and top <= row < top + 4 else 0
                 self.assertEqual((cycle % 76, value), (19, expected))
             writes.append(register)
-        self.assertEqual(len(writes), 160 * 3)
+        self.assertEqual(len(writes), 160 * 2)
 
     def test_every_ring_and_beam_phase_preserves_two_enemy_schedule(self):
         # A press on either parity must show each ring twice, not skip a stage.

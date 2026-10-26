@@ -34,8 +34,6 @@ def check():
             assert (address & 255) + 23 < 256, f"Page crossing: {name}"
         elif name.startswith("Sprite"):
             assert address & 255 == 0, f"Unaligned sprite: {name}"
-    assert (sym["BeamGlowColors"] & 255) + 7 + 79 < 256, "Beam color strip crosses a page"
-    assert (sym["BombGlowColors"] & 255) + 79 < 256, "Bomb color strip crosses a page"
     manifest = json.loads((ROOT / "build/generated/manifest.json").read_text())
     report = {
         "rom_bytes": len(rom), "sha256": hashlib.sha256(rom).hexdigest(),
