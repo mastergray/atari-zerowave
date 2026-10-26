@@ -51,6 +51,24 @@ def beam_rows(lane, tuning):
     return [encode_row(row) for row in rows]
 
 
+def bomb_radii(tuning):
+    return [round(tuning["bomb_radius"] * (stage + 1) / tuning["bomb_stages"])
+            for stage in range(tuning["bomb_stages"])]
+
+
+def ring_rows(radius, tuning):
+    """An outline in the same radial coordinates as enemies and the beam.
+
+    Sampling half-degree steps joins the coarse playfield cells around the rim;
+    there is no filled disk or persistent trail from previous ring sizes.
+    """
+    rows = [set() for _ in range(tuning["arena_rows"])]
+    for step in range(720):
+        x, y = center(step / 90, radius, tuning)
+        rows[y].add(x // 4)
+    return [encode_row(row) for row in rows]
+
+
 def byte_lines(label, data, alignment=None):
     result = [f"    align {alignment}" ] if alignment else []
     result.append(label + ":")
@@ -78,16 +96,29 @@ def hud_rows():
 def generate():
     tuning = load_config()
     fixtures = json.loads((ROOT / "config/fixtures.json").read_text())
+    assert tuning["arena_rows"] == 80, "The timed kernel requires 80 logical rows"
+    assert (tuning["center_x"], tuning["center_y"]) == (80, 40), "The turret kernel uses a fixed center"
+    assert 0 < tuning["bomb_radius"] <= tuning["spawn_radius"]
+    animation_frames = tuning["bomb_stages"] * tuning["bomb_stage_frames"]
+    assert 0 < tuning["bomb_stages"] <= 8
+    assert tuning["bomb_stage_frames"] >= 2 and tuning["bomb_stage_frames"] % 2 == 0
+    assert 0 < tuning["bomb_sound_frames"] <= min(15, animation_frames)
+    assert animation_frames < tuning["bomb_cooldown"] <= 255
+    radii = bomb_radii(tuning)
+    assert radii == sorted(set(radii)) and radii[0] > 0
     OUT.mkdir(parents=True, exist_ok=True)
     constants = ["; Generated; edit config/tuning.json instead."]
-    for name in ("bomb_cooldown", "bomb_flash", "bomb_radius", "arena_rows"):
+    for name in ("bomb_cooldown", "bomb_sound_frames", "bomb_radius", "arena_rows"):
         constants.append(f"{name.upper()} = {tuning[name]}")
+    constants.append(f"BOMB_ANIMATION_FRAMES = {animation_frames}")
     for name, value in tuning["colors"].items():
         constants.append(f"COLOR_{name.upper()} = ${value:02x}")
     constants.append(f"FIXTURE_COUNT = {len(fixtures)}")
     (OUT / "tuning.inc").write_text("\n".join(constants) + "\n")
 
     patterns = [beam_rows(lane, tuning) for lane in range(9)]
+    beam_streams = len({tuple(row[plane] for row in rows) for rows in patterns for plane in (1, 2, 3, 4)})
+    patterns.extend(ring_rows(radius, tuning) for radius in radii)
     streams = {}
     references = []
     # Rays are confined to columns 9..31: left PF0 and right PF2 stay zero.
@@ -97,15 +128,21 @@ def generate():
         for plane in (1, 2, 3, 4):
             values = tuple(row[plane] for row in rows)
             if values not in streams:
-                streams[values] = f"BeamStream{len(streams)}"
+                streams[values] = f"PlayfieldStream{len(streams)}"
             labels.append(streams[values])
         references.append(labels)
     render = ["; Generated display data. All indexed loads are page-safe.\n"]
+    # Timer counts down. Zero is neutral; 16..13 select the smallest ring, etc.
+    render.append(byte_lines("BombPatternByTimer", [8] + [
+        9 + (animation_frames - timer) // tuning["bomb_stage_frames"]
+        for timer in range(1, animation_frames + 1)]))
     for plane, name in enumerate(("Left1", "Left2", "Right0", "Right1")):
         for operator, suffix in (("<", "Lo"), (">", "Hi")):
-            render.append(f"Beam{name}{suffix}:\n    .byte " + ",".join(operator + labels[plane] for labels in references) + "\n")
-    for values, label in streams.items():
-        render.append(byte_lines(label, values, 128))
+            render.append(f"Pattern{name}{suffix}:\n    .byte " + ",".join(operator + labels[plane] for labels in references) + "\n")
+    # Three 80-byte streams fit in a 256-byte page, preserving five-cycle
+    # indirect loads while reclaiming the old 128-byte alignment gaps.
+    for index, (values, label) in enumerate(streams.items()):
+        render.append(byte_lines(label, values, 256 if index % 3 == 0 else None))
     turret = [0] * tuning["arena_rows"]
     turret[38:42] = [0x18, 0x3c, 0x7e, 0x3c]
     render.append(byte_lines("TurretRows", turret, 128))
@@ -134,11 +171,13 @@ def generate():
             for field, value in zip(("Flags", "Radius", "X", "Y"), values):
                 fixture_data[f"Fixture{field}{slot}"].append(value)
     (OUT / "fixtures.inc").write_text("".join(byte_lines(name, values) for name, values in fixture_data.items()))
-    manifest = {"unique_beam_streams": len(streams), "patterns": patterns, "fixtures": fixtures, "tuning": tuning}
+    manifest = {"unique_beam_streams": beam_streams, "unique_playfield_streams": len(streams),
+                "bomb_radii": radii, "bomb_animation_frames": animation_frames,
+                "patterns": patterns, "fixtures": fixtures, "tuning": tuning}
     (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     stamp = hashlib.sha256((json.dumps(tuning, sort_keys=True) + json.dumps(fixtures, sort_keys=True)).encode()).hexdigest()
     (OUT / "assets.stamp").write_text(stamp + "\n")
-    print(f"Generated {len(streams)} shared beam streams and {len(fixtures)} display fixtures.")
+    print(f"Generated {len(streams)} shared playfield streams, {len(radii)} rings, and {len(fixtures)} display fixtures.")
 
 
 if __name__ == "__main__":

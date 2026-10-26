@@ -7,7 +7,7 @@ The first playable build must support two active enemies. The implementation res
 Implementation status: the controls/display prototype for milestones 0 and 1 is
 available. See [build and play instructions](../README.md) and
 [measured kernel timing](KERNEL_TIMING.md). It includes static two-enemy stress
-layouts and bomb feedback; movement, damage, HP, score, and levels remain future
+layouts, a flashing beam, and an expanding bomb outline; movement, damage, HP, score, and levels remain future
 work. SELECT cycles test layouts in this prototype only. The sections below
 continue to define the full game target.
 
@@ -47,7 +47,7 @@ Invert and shift the direction nibble to obtain `up=1`, `down=2`, `left=4`, `rig
 | NW | 5 | 7 |
 | Neutral | 0 | 255 |
 
-Holding a direction enables one continuous beam in that direction. Diagonals produce one diagonal beam. Changing direction changes the next rendered beam; neutral disables both its graphic and damage. Remember the last valid direction separately if needed for a HUD cue. Do not require button input to fire the beam.
+Holding a direction enables continuous beam damage in that direction. The graphic flashes on alternate frames, independently of damage. Diagonals produce one diagonal beam. Changing direction changes the next visible beam phase; neutral disables both its graphic and damage. Remember the last valid direction separately if needed for a HUD cue. Do not require button input to fire the beam.
 
 A button press edge detonates a bomb only when its cooldown is zero. Holding the button never repeats, and presses during cooldown are discarded rather than queued. The beam continues during a bomb. Maintain button history even when an action is rejected or the game is between levels.
 
@@ -67,7 +67,8 @@ Game geometry uses an eight-way lane and a radial distance, not free Cartesian m
 | `BEAM_RANGE` | 63 | Beam reaches the full approach lane |
 | `START_HP` | 5 | Health at the start of each run |
 | `BOMB_COOLDOWN` | 60 updates | Approximately one second at the target frame rate |
-| `BOMB_FLASH` | 6 updates | Brief visual confirmation |
+| `BOMB_ANIMATION_FRAMES` | 16 updates | Four expanding ring sizes, four updates each |
+| `BOMB_SOUND_FRAMES` | 6 updates | Short noise envelope independent of animation |
 | `LEVEL_BREAK` | 60 updates | Pause after a cleared level |
 | `SQUARE_SPAWN_GAP` | 72 updates | Minimum spacing between square spawns |
 
@@ -86,7 +87,7 @@ For radius comparisons, explicitly compare both bytes: `24.00` is inside the bom
 | Triangle | Destroy on matching lane within beam range | Destroy | Lose one HP | 10 |
 | Square | No effect; does not block the ray | Destroy | Lose one HP | 25 |
 
-The beam pierces: all eligible triangles on its selected lane can be destroyed in the same update. A bomb checks every active slot once and destroys both types within radius. Its flash is cosmetic and causes no subsequent damage. A square outside the radius survives even if the whole arena flashes.
+The beam pierces: all eligible triangles on its selected lane can be destroyed in the same update, including frames when the beam graphic is omitted. A bomb checks every active slot once and destroys both types within radius. Its expanding outline is cosmetic and causes no subsequent damage; there is no moving damage front. A square outside the radius survives.
 
 Process bomb damage before beam damage, then process center contacts. Immediately mark destroyed enemies inactive; an enemy hit by both weapons earns score and quota credit exactly once. Attacks therefore win a same-update tie with reaching the turret. Contacted enemies are removed without score or quota credit. Each surviving contact costs one HP, saturating at zero; there is no invulnerability mechanic in the baseline.
 
@@ -114,9 +115,9 @@ Entering `LEVEL_BREAK` sets its counter to 60; each following update decrements 
 One game update produces the state for the next visible frame:
 
 1. Sample and normalize input; handle RESET or non-play mode transitions.
-2. Decrement nonzero cooldown, flash, spawn, and square-spacing timers. A timer set later in this update is not decremented again.
+2. Decrement nonzero cooldown, bomb-animation, spawn, and square-spacing timers. A timer set later in this update is not decremented again.
 3. Move enemies that were active at the start of the update.
-4. Accept a fresh bomb press if ready; set cooldown to 60 and flash to six.
+4. Accept a fresh bomb press if ready; set cooldown to 60 and bomb-animation timer to 16. Emit one bomb event for damage and sound.
 5. Resolve bomb kills, beam kills, and surviving center contacts in that order.
 6. Resolve death, quota completion, and level-break entry.
 7. If still playing with quota remaining, attempt at most one spawn when due.
@@ -179,11 +180,13 @@ After level 8, reuse the final difficulty row. Track a displayed level number up
 
 ## Beam and enemy rendering
 
-Allocate the playfield to the beam, player 0 to the turret, and player 1 to enemies. Leave missiles and ball disabled initially. Use a background-color flash for bombs, preserving beam/enemy contrast. HUD graphics occupy a separate vertical region.
+Share the playfield between the beam and bomb outline, with player 0 for the turret and player 1 for enemies. Leave missiles and ball disabled initially. Keep the background black; use cyan for beam frames and gold for ring frames. HUD graphics occupy a separate vertical region.
 
-The beam uses eight opaque raster patterns, one selected by direction. Both halves of the playfield must be independently controlled so a right shot cannot create a left copy. Repeat each logical row across two scanlines. Keep turret and beam visible every frame; use no transparency or trails.
+The beam uses eight opaque raster patterns, one selected by direction. Both halves of the playfield must be independently controlled so a right shot cannot create a left copy. Repeat each logical row across two scanlines. Keep the turret visible every frame. Draw the beam on even frames; on odd frames draw the active bomb outline, or blank when no bomb is active. This gives each effect about 30 appearances per second without adding omissions to enemy graphics. Input, damage, and beam audio remain independent of this display phase. Use no transparency or trails.
 
-The asset generator emits six playfield byte streams per direction, with identical streams and blank runs shared where practical. Eight uncompressed patterns at 80 rows and six bytes per row cost 3,840 bytes, so sharing is required to leave room in the renderer bank. Start with deduplicated full row streams for simple timed loads. Change representation only with a measured cycle and ROM benefit. Keep indexed streams within pages where the kernel assumes fixed load timing, or explicitly account for page crossings.
+Generate four ring sizes in the same radial geometry as the lanes, initially radii 6, 12, 18, and 24. Each lasts four updates, ensuring two visible ring frames regardless of the firing phase. The final outline marks the bomb's maximum radius. Treat the 16-update animation as feedback for immediate damage, not a persisting blast. Validate both beam/ring phases, neutral-stick bombs, every stage, and target visibility during the largest ring.
+
+The generator encodes six playfield planes per pattern. The current geometry keeps left PF0 and right PF2 at zero, allowing four timed stream loads. The eight directions, neutral, and four rings share 22 unique 80-byte streams, packed three per page. Keep indexed streams within pages where the kernel assumes fixed load timing, or explicitly account for page crossings. Expanding the geometry into the constant-zero outer planes requires revising the kernel.
 
 Each scanline still has its own write deadlines in a two-line kernel. Before accepting it, produce an instruction-cycle schedule covering both playfield halves, both player graphics, loop control, and horizontal positioning. No particular register schedule is considered proven by this specification.
 
@@ -217,7 +220,7 @@ The initial map uses the full available address range, with explicit reserve and
 | --- | ---: | --- |
 | `$80–$9F` | 32 | Four enemy slots, eight arrays of four bytes |
 | `$A0–$AF` | 16 | Mode, level, quota, HP, two score bytes, mode timer, spawn timer, square timer, RNG, active count, active cap, speed, spawn interval, square weight, spare game byte |
-| `$B0–$B7` | 8 | Direction, last direction, previous button/reset bits, beam enable, bomb cooldown, flash timer, bomb event, frame phase |
+| `$B0–$B7` | 8 | Direction, last direction, previous button/reset bits, beam enable, bomb cooldown, bomb-animation timer, bomb event, frame phase |
 | `$B8–$BF` | 8 | Two sound-channel states, four bytes each |
 | `$C0–$D7` | 24 | Renderer pointers, row bytes, and draw/HUD state |
 | `$D8–$E7` | 16 | Shared scratch for logic, spawning, and schedule construction |
@@ -225,7 +228,7 @@ The initial map uses the full available address range, with explicit reserve and
 | `$F0–$FF` | 16 | Stack reservation |
 | Total | 128 | Includes stack and margin |
 
-The 24 renderer bytes initially allow six two-byte playfield pointers, six row bytes, one two-byte sprite pointer, and four control bytes. Later sprite reuse must fit or explicitly revise this allocation. Scratch can be reused only across nonoverlapping lifetimes; record clobbered registers and scratch in each routine's header. ROM switching does not preserve a second copy of RAM.
+The 24 renderer bytes currently hold four two-byte playfield pointers, a two-byte sprite pointer, selected slot, HUD color, arena effect color, display-pattern ID, and ten reserved bytes. Later sprite reuse must fit or explicitly revise this allocation. Scratch can be reused only across nonoverlapping lifetimes; record clobbered registers and scratch in each routine's header. ROM switching does not preserve a second copy of RAM.
 
 Initialize the stack at `$FF` and keep peak stack consumption within 16 bytes, including nested subroutines and any explicit pushes. Verify the high-water mark in the busiest frame. Increasing storage beyond four slots requires a revised map; it is not enabled by changing only a level row.
 
@@ -289,7 +292,7 @@ Host tests verify the integer model and generated data; they do not prove the as
 | Spawn limits | Never exceed active cap, duplicate a baseline lane, overwrite a live slot, or spin on failed placement. Square spacing is honored. |
 | Fairness | At each speed, measure the exact number of updates from bomb-range entry to contact. Later-level spawn mixes retain usable bomb windows. |
 | Progression | Multi-kill quota crossing stops spawns, waits for remaining enemies, and enters a 60-update break. Death overrides advancement. Level 99 and score 9999 saturate safely. |
-| Display | Turret and beam remain steady through bombs; every active enemy appears at least every other frame. Check same-height pairs and center convergence. |
+| Display | Turret stays steady; beam and bomb ring alternate without disabling beam damage. Every active enemy appears at least every other frame. Test every ring stage on both press phases, neutral-stick bombs, same-height pairs, and center convergence. |
 | Memory and ROM | Both possible startup banks reset correctly; bank stubs match; stack remains in its reservation; guard bytes remain intact; each bank fits. |
 | Timing | All states use the intended frame/scanline counts. Worst-case bomb kills, score carry, failed spawns, transitions, and display schedules stay within measured budgets. |
 
@@ -300,7 +303,7 @@ Use small deterministic fixtures for logic failures, then a longer scripted stre
 | Milestone | Deliverable | Exit criterion |
 | --- | --- | --- |
 | 0 | Pinned build, F8 startup/bank stubs, stable blank ROM | Correct image/vectors and stable frame from either initial bank |
-| 1 | Turret, eight beam patterns, one enemy graphic, bomb flash | Cycle schedule and Stella measurements prove the core display |
+| 1 | Turret, eight flashing beam patterns, one enemy graphic, expanding bomb outline | Cycle schedule and Stella measurements prove the core display and both effect phases |
 | 2 | Input, two-enemy pool/display, movement, combat, HP, score, restart | Rule fixtures pass in the cartridge; two-enemy overlap remains readable |
 | 3 | Both enemy types, bomb cue/cooldown, level table, sound | Opening levels are playable and fair; baseline hardware pass |
 | 4 | Vertical sprite reuse and three-enemy scheduling | Three-enemy stress cases meet timing and omission limits; enable level 4 density |

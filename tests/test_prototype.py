@@ -34,6 +34,24 @@ class AssetTests(unittest.TestCase):
         for lane in (5, 6, 7):
             self.assertFalse(any(any(row[3:]) for row in assets.beam_rows(lane, tuning)))
 
+    def test_rings_expand_to_bomb_range_and_keep_a_hollow_center(self):
+        tuning = assets.load_config()
+        bounds = []
+        radii = assets.bomb_radii(tuning)
+        self.assertEqual(radii[-1], tuning["bomb_radius"])
+        for radius in radii:
+            rows = assets.ring_rows(radius, tuning)
+            occupied_y = [y for y, row in enumerate(rows) if any(row)]
+            bounds.append((min(occupied_y), max(occupied_y)))
+            for lane in range(8):
+                x, y = assets.center(lane, radius, tuning)
+                pixel = assets.encode_row({x // 4})
+                self.assertTrue(all((a & b) == b for a, b in zip(rows[y], pixel)))
+            center = assets.encode_row({tuning["center_x"] // 4})
+            self.assertFalse(any(a & b for a, b in zip(rows[tuning["center_y"]], center)))
+            self.assertTrue(all(row[0] == row[5] == 0 for row in rows))
+        self.assertTrue(all(a[0] > b[0] and a[1] < b[1] for a, b in zip(bounds, bounds[1:])))
+
 
 class CartridgeTests(unittest.TestCase):
     def machine(self, bank=1):
@@ -67,7 +85,7 @@ class CartridgeTests(unittest.TestCase):
         machine.frame(9, fire=True)
         self.assertEqual(machine.value("BombCount"), 1)
         self.assertEqual(machine.value("BombCooldown"), 60)
-        self.assertEqual(machine.value("BombFlash"), 6)
+        self.assertEqual(machine.value("BombTimer"), 16)
         self.assertEqual(machine.value("Direction"), 1)
         for _ in range(90):
             self.assertEqual(machine.frame(9, fire=True), 262 * 76)
@@ -98,11 +116,15 @@ class CartridgeTests(unittest.TestCase):
         machine = self.machine()
         machine.frame(fire=True, reset=True)
         self.assertEqual(machine.value("BombCount"), 0)
+        self.assertEqual(machine.value("BombTimer"), 0)
         machine.frame(fire=True)
         self.assertEqual(machine.value("BombCount"), 0)
         machine.frame()
         machine.frame(fire=True)
         self.assertEqual(machine.value("BombCount"), 1)
+        machine.frame(reset=True)
+        self.assertEqual(machine.value("BombTimer"), 0)
+        self.assertLessEqual(machine.value("DisplayPattern"), 8)
 
     def test_select_cycles_fixtures_and_two_enemy_fairness(self):
         machine = self.machine()
@@ -141,6 +163,75 @@ class CartridgeTests(unittest.TestCase):
             writes = [(cycle % 76, register) for cycle, register, _ in machine.bus.events
                       if (cycle - origin) // 76 == line and register in (0x0d, 0x0e, 0x0f, 0x1b, 0x1c)]
             self.assertEqual(writes, expected, line)
+
+    def assert_rendered_pattern(self, machine, pattern):
+        """Check actual TIA data and deadlines for all 160 lines of this frame."""
+        rows = json.loads((ROOT / "build/generated/manifest.json").read_text())["patterns"][pattern]
+        origin = machine.bus.vsync_edges[-1] // 76 * 76
+        scanlines = [[] for _ in range(160)]
+        for cycle, register, value in machine.bus.events:
+            line = (cycle - origin) // 76 - 72
+            if 0 <= line < 160 and register in (0x0d, 0x0e, 0x0f):
+                scanlines[line].append((cycle % 76, register, value))
+        schedule = [(5, 0x0d), (13, 0x0e), (29, 0x0f), (44, 0x0d), (52, 0x0e), (57, 0x0f)]
+        for line, writes in enumerate(scanlines):
+            self.assertEqual(writes, [(cycle, register, value) for (cycle, register), value
+                                     in zip(schedule, rows[line // 2])], (pattern, line))
+
+    def test_beam_flashes_without_disabling_input_or_sound(self):
+        machine = self.machine()
+        for direction, mask in enumerate((1, 9, 8, 10, 2, 6, 4, 5, 0)):
+            patterns = []
+            for _ in range(2):
+                machine.bus.events.clear()
+                self.assertEqual(machine.frame(mask), 262 * 76)
+                pattern = machine.value("DisplayPattern")
+                patterns.append(pattern)
+                self.assertEqual(machine.value("BeamEnabled"), int(mask != 0))
+                self.assertEqual(machine.bus.tia[0x19], 2 if mask else 0)
+                self.assert_rendered_pattern(machine, pattern)
+            self.assertEqual(sorted(patterns), sorted([direction, 8]))
+
+    def test_every_ring_and_beam_phase_preserves_two_enemy_schedule(self):
+        # A press on either parity must show each ring twice, not skip a stage.
+        for offset in (0, 1):
+            machine = self.machine()
+            for _ in range(8):
+                machine.frame(select=True)
+                machine.frame()
+            for _ in range(offset):
+                machine.frame()
+            rings, selected = [], []
+            for elapsed in range(17):
+                mask = (1, 9, 8, 10, 2, 6, 4, 5)[elapsed % 8]
+                machine.bus.events.clear()
+                self.assertEqual(machine.frame(mask, fire=True), 262 * 76)
+                self.assertEqual(machine.value("BombEvent"), int(elapsed == 0))
+                self.assertEqual(machine.value("BombTimer"), max(0, 16 - elapsed))
+                self.assertEqual(machine.bus.tia[0x1a], max(0, 6 - elapsed))
+                self.assertEqual(machine.value("BeamEnabled"), 1)
+                pattern = machine.value("DisplayPattern")
+                if machine.value("FramePhase") and elapsed < 16:
+                    self.assertEqual(pattern, 9 + elapsed // 4)
+                    rings.append(pattern)
+                else:
+                    self.assertEqual(pattern, 8 if machine.value("FramePhase") else elapsed % 8)
+                self.assert_rendered_pattern(machine, pattern)
+                selected.append(machine.value("SelectedSlot"))
+                self.assertEqual(machine.bus.tia[0x09], 0)  # no arena background flash
+            self.assertEqual(rings, [9, 9, 10, 10, 11, 11, 12, 12])
+            self.assertEqual(set(selected), {0, 1})
+            self.assertTrue(all(a != b for a, b in zip(selected, selected[1:])))
+            self.assertEqual(machine.bus.ram[0x68:0x70], bytes([0xa5] * 8))
+            self.assertGreaterEqual(machine.min_sp, 0xef)
+
+    def test_bomb_animates_without_a_beam(self):
+        machine = self.machine()
+        for elapsed in range(16):
+            machine.frame(fire=True)
+            self.assertEqual(machine.value("BeamEnabled"), 0)
+            expected = 9 + elapsed // 4 if machine.value("FramePhase") else 8
+            self.assertEqual(machine.value("DisplayPattern"), expected)
 
     def test_positioning_loop_does_not_cross_page(self):
         machine = self.machine()

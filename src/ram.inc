@@ -19,7 +19,7 @@ LastDirection   ds 1
 PreviousButtons ds 1
 BeamEnabled     ds 1
 BombCooldown    ds 1
-BombFlash       ds 1
+BombTimer       ds 1
 BombEvent       ds 1
 FramePhase      ds 1
 AudioReserved   ds 8
@@ -30,8 +30,9 @@ BeamRight1      ds 2
 EnemySprite     ds 2
 SelectedSlot    ds 1
 HudColor        ds 1
-ArenaBackground ds 1
-RenderReserved  ds 11
+ArenaColor      ds 1
+DisplayPattern  ds 1
+RenderReserved  ds 10
 CurrentButtons  ds 1
 PressedButtons  ds 1
 Temp            ds 1

@@ -5,7 +5,7 @@ A native Atari 2600 prototype of the stationary-turret game described in
 The cartridge targets NTSC, uses ordinary 8 KiB F8 banking, and needs no extra RAM.
 
 The current build implements the first controls/display milestone: a centered
-turret, eight-way continuous beam, button-triggered bomb flash and sound,
+turret, eight-way flashing beam, button-triggered expanding bomb ring and sound,
 one-second bomb cooldown, and eleven static enemy layouts. Enemies do not move
 or take damage yet. Health, score, levels, and title/game-over screens come later.
 
@@ -26,6 +26,9 @@ bank-usage report are alongside it. `make debug` opens Stella's debugger.
 stay in `.tools/`; nothing is installed globally. A separately installed assembler
 can be selected with `make DASM=/path/to/dasm`.
 
+Make is optional for launching an existing ROM: open the `.bin` in Stella or run
+`stella build/atari-zerowave.bin`. `make run` also rebuilds it when sources change.
+
 ## Controls
 
 Use a joystick in the left port. These are Stella's default keyboard bindings;
@@ -33,28 +36,39 @@ custom mappings can be changed in its input settings.
 
 | Control | Stella key | Prototype behavior |
 | --- | --- | --- |
-| Joystick direction | Arrow keys; combine two for diagonals | Fire a beam continuously; release to stop |
-| Joystick button | Space | Bomb flash and sound on a fresh press, if ready |
+| Joystick direction | Arrow keys; combine two for diagonals | Hold to fire a flashing beam; release to stop |
+| Joystick button | Space | Expanding bomb ring and sound on a fresh press, if ready |
 | SELECT | F1 | Advance to the next static test layout |
 | RESET | F2 | Return to the first layout and clear bomb state |
 
 The `BOMB` label is green when ready and amber during the 60-update cooldown.
 Holding the button produces one bomb; pressing during cooldown does not queue
-another. The beam stays on during the six-update flash. RESET with fire held
-does not trigger a bomb.
+another. The gold bomb outline expands through four sizes over 16 updates
+(about a quarter-second), ending at the bomb's range. During that animation,
+ring and beam frames alternate. The cyan beam also flashes every other frame
+outside bombs. Its input and sound remain active throughout while a direction
+is held. RESET with fire held does not trigger a bomb.
+
+Try bombing while changing direction, and while the stick is neutral. Check
+whether the expanding ring is easy to see and whether the flashing beam remains
+easy to aim. The ring is visual feedback for the planned immediate, fixed-radius
+damage; it does not introduce a moving damage front or a lingering blast.
 
 SELECT cycles through N, NE, E, SE, S, SW, W, and NW single-target layouts, then
 east/west at the same height, two diagonals near the turret, and a north/south pair.
 Triangles are green. Squares are pink and fill in when inside bomb range. The SE
 layout demonstrates this cue. These are visual fixtures: firing does not remove
 them. Two-target layouts alternate one enemy per frame, so each appears at about
-30 Hz while the beam and turret remain present every frame.
+30 Hz. The turret remains present every frame; each effect appears at about 30 Hz.
+Bombs do not reduce enemy appearances further.
 
 ## Validation and development
 
-`make check` runs 12 tests covering generated geometry, all joystick combinations,
+`make check` runs 16 tests covering generated geometry, all joystick combinations,
 button edges and exact cooldown boundaries, both startup banks, stack/guard
 integrity, fixed frame lengths, kernel write deadlines, and display fairness.
+Tests check every animation stage for presses on either frame phase, actual
+playfield data, continuous beam state, and the separate short sound envelope.
 The CPU tests execute the assembled cartridge using py65 and a limited VCS bus;
 they do not simulate TIA pixels.
 
@@ -63,8 +77,9 @@ xvfb-run -a make stella-check
 ```
 
 This runs the ROM in an isolated Stella window, checks input/bomb state and
-262-line timing, and saves 16 TIA snapshots: neutral, all eight directions, bomb,
-and both phases of the three overlap layouts. Results are indexed by
+262-line timing, and saves 39 TIA snapshots: neutral, both phases of all eight
+directions, all 16 bomb frames, and both phases of the three overlap layouts
+during the largest ring. Results are indexed by
 `build/stella/latest.json`. Validated with Stella 6.0.2. See
 [kernel timing notes](docs/KERNEL_TIMING.md) for the measured budgets and limits.
 Television flicker, real joystick diagonals, and sound still need a hardware pass.

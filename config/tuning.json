@@ -8,7 +8,9 @@
   "contact_radius": 8,
   "bomb_radius": 24,
   "bomb_cooldown": 60,
-  "bomb_flash": 6,
+  "bomb_stages": 4,
+  "bomb_stage_frames": 4,
+  "bomb_sound_frames": 6,
   "colors": {
     "beam": 174,
     "turret": 14,
@@ -17,6 +19,6 @@
     "ready": 198,
     "waiting": 38,
     "background": 0,
-    "flash": 50
+    "bomb": 46
   }
 }

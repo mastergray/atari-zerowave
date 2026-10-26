@@ -55,10 +55,10 @@ UpdatePrototype:
     beq .noCooldown
     dec BombCooldown
 .noCooldown:
-    lda BombFlash
-    beq .noFlash
-    dec BombFlash
-.noFlash:
+    lda BombTimer
+    beq .noAnimation
+    dec BombTimer
+.noAnimation:
     jsr SampleInput
     lda PressedButtons
     and #1
@@ -66,7 +66,7 @@ UpdatePrototype:
     lda #0
     sta LayoutId
     sta BombCooldown
-    sta BombFlash
+    sta BombTimer
     sta BombCount
     jsr LoadFixture
     jmp .finish
@@ -90,8 +90,8 @@ UpdatePrototype:
     bne .finish
     lda #BOMB_COOLDOWN
     sta BombCooldown
-    lda #BOMB_FLASH
-    sta BombFlash
+    lda #BOMB_ANIMATION_FRAMES
+    sta BombTimer
     lda #1
     sta BombEvent
     inc BombCount
@@ -109,7 +109,13 @@ UpdatePrototype:
     lda #8
     sta AUDC1
     sta AUDF1
-    lda BombFlash
+    ; Keep the short noise envelope independent of the longer ring animation.
+    lda BombTimer
+    sec
+    sbc #(BOMB_ANIMATION_FRAMES-BOMB_SOUND_FRAMES)
+    bcs .bombVolume
+    lda #0
+.bombVolume:
     sta AUDV1
     rts
 

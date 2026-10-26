@@ -30,14 +30,14 @@ SeparatorLoop:
     sta PF2
     dex
     bne SeparatorLoop
-    lda #COLOR_BEAM
+    lda ArenaColor
     sta COLUPF
-    lda ArenaBackground
+    lda #COLOR_BACKGROUND
     sta COLUBK
     ldy #0
 
-; Four varying PF streams suffice because the ray never reaches columns 0..3
-; or 32..39. Sprite writes precede their earliest possible horizontal pixels.
+; Four varying PF streams serve both rays and rings: neither reaches columns
+; 0..3 or 32..39. Sprite writes precede their earliest possible pixels.
 ; Completion cycles from each WSYNC: PF0=5, PF1=13, GRP1=21, PF2=29,
 ; GRP0=36, PF0=44, PF1=52, PF2=57. Second line repeats the same logical row.
     MAC ARENA_SCANLINE

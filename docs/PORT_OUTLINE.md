@@ -1,6 +1,6 @@
 # Zero Swarm → Atari 2600: cuts for a playable version
 
-Reviewed 2026-10-26 against `../res`, commit `fb68a689d3fa6346696dd2310e5dd3d167c065a1`. This is a source-based design recommendation; a 2600 renderer has not yet been built or measured.
+Reviewed 2026-10-26 against `../res`, commit `fb68a689d3fa6346696dd2310e5dd3d167c065a1`. The controls/display prototype is now implemented; [kernel measurements](KERNEL_TIMING.md) record its timing and remaining limits.
 
 The [implementation specification](IMPLEMENTATION_SPEC.md) defines the native code architecture, game rules, level data, resource budgets, and acceptance tests for this baseline.
 
@@ -12,17 +12,22 @@ Build a small, single-screen survival game: a stationary turret fires along eigh
 
 The scope below targets a stock Atari 2600 and one standard joystick. The user has accepted this reduced feature set as the test baseline, with increasing enemy counts in later levels as an explicit goal. Two active enemies is the starting cap, not the intended permanent limit. Exact level thresholds and the final enemy cap remain to be tested.
 
+The accepted effects experiment adds a flashing beam and a four-step expanding
+bomb outline. They alternate display frames while the bomb animates, preserving
+continuous beam state and the existing enemy schedule. The ring is cosmetic;
+the planned damage remains immediate and limited to a fixed radius.
+
 ## What to cut, and what replaces it
 
 | Cut from the proposed port | Keep instead | Why make this cut? |
 | --- | --- | --- |
 | Smooth 360° mouse aiming and mouse-controlled beam length | Eight directions, one fixed reach clipped to the arena | Matches the joystick and makes aiming and hit tests predictable. |
-| Thin, smoothly drawn beam and continuously rotating player polygon | A chunky ray and a small stationary turret symbol | Preserves readable aim while greatly simplifying drawing. Diagonals will look stepped. |
+| Thin, smoothly drawn beam and continuously rotating player polygon | A chunky flashing ray and a small stationary turret symbol | Preserves readable aim while simplifying drawing. Diagonals look stepped. |
 | Free-moving enemies anywhere in the arena | Eight straight approach lanes aligned with the beam | No targets between firing directions; one shared movement rule and simple hit tests. Free-moving enemies are not implemented in the source yet. |
 | A large simultaneous swarm from the outset | **Two active enemies for the prototype and opening levels**, with higher caps in later levels after validation | Reduces initial display conflicts and flicker while leaving a clear path to denser encounters. Two is a starting choice, not an Atari hardware maximum. |
 | Sweeping filled sectors, lingering trails, transparency, and accumulated effects | Only the currently active beam | Removes overlapping graphics and effect history without sacrificing directional firing. |
 | Hold-to-charge bomb, growing charge circle, and compression animation | One bomb strength, fired on button press | Simplifies input and keeps the bomb immediate. Charging is technically plausible, but unnecessary for the first game. |
-| The 24-ring bomb sequence and smooth circular outlines | A brief flash, noise burst, and immediate local damage | The area attack can work without drawing a large animated ring alongside the beam and enemies. |
+| The 24-ring bomb sequence and smooth circular outlines | One coarse outline expanding through four sizes, a noise burst, and immediate local damage | Precomputed outlines share alternate frames with the beam; no accumulated rings or trails. |
 | Shifters, reflectors, reflected shots, and special movement rules | Triangle and square enemies using the same approach behavior | Keeps a reason to choose weapons while limiting combat state and extra moving objects. These advanced types are only design intentions in the checkout. |
 | XP, weapon upgrades, per-type statistics, reports, and elaborate screens | Score, five health marks, bomb-ready indicator, and game over | Focuses the game on survival. These systems are scope cuts, not claims that counters or menus are impossible on Atari. |
 | Music and decorative background animation | Brief attack, hit, and death sounds on a plain arena | Clear feedback earns its cost; decoration can wait. Sound would be new work. |
@@ -39,13 +44,13 @@ Baseline rules for that first playable version; numerical tuning remains provisi
 - Triangles die to the beam. Squares require the bomb. Both use the same lane movement; the difference is a silhouette and a weapon-vulnerability flag.
 - Bombs destroy eligible enemies inside a fixed radius around the player. As a starting rule, allow them to destroy both types, so the bomb also works as an emergency defense.
 - Press the button once to detonate; holding it does not repeat. Use a short cooldown, initially around one second, and an obvious ready indicator. This cooldown is a new balancing proposal.
-- Keep the beam active when bombing. A simple flash allows both attacks to coexist without requiring two elaborate effects.
+- Keep the beam active when bombing. Its graphic alternates with the expanding ring, while beam damage remains enabled on every update.
 - An enemy reaching the center costs one health point and is removed. Start at five HP, matching the source's initial value.
 - Kills increase score and advance a level's kill quota. Begin with a two-enemy cap; later levels can raise that cap, shorten spawn delays, or increase approach speed within tested limits. At zero HP, show game over; RESET starts again.
 
 Early challenge comes from switching direction and timing the bomb. Later levels should add crowd management through higher simultaneous enemy counts. The compromise is a measured, bounded swarm rather than unrestricted density.
 
-Bomb range must be understandable even without a ring: use a visible near-center lane threshold, such as a change in the square's appearance when it enters bomb range. Keep that cue consistent with the actual hit test. Spawn timing must also leave a reasonable response window; do not routinely schedule bomb-only enemies so that surviving requires a bomb still on cooldown.
+Bomb range must be understandable before pressing the button: fill the square's silhouette when it enters bomb range, and let the final ring size show that same boundary after firing. Keep both cues consistent with the actual hit test. Spawn timing must also leave a reasonable response window; do not routinely schedule bomb-only enemies so that surviving requires a bomb still on cooldown.
 
 These are adaptation rules, not behavior recovered from a completed original game.
 
@@ -71,17 +76,17 @@ That is why the recommendation is to reduce simultaneous threats before promisin
 
 The two enemy *types* are much less concerning than many enemies visible *at once*. A second shape and vulnerability flag provide useful gameplay without requiring a second movement system. Retain that distinction if possible.
 
-A bomb's damage check can be small: compare each enemy's distance from the center against the blast radius. Its original visual effect is a separate, much larger requirement. Cutting the ring animation preserves the area weapon.
+A bomb's damage check can be small: compare each enemy's distance from the center against the blast radius. Its original visual effect is a separate, much larger requirement. The prototype retains one coarse animated outline while cutting the original overlapping ring sequence.
 
 ## The beam is the one rendering feature to protect
 
-The initial rendering proposal is an opaque, coarse playfield ray selected from eight patterns. Draw the turret and enemies with player graphics; use a background flash for the bomb. Keep the HUD in a separate strip and the arena plain.
+The renderer uses an opaque, coarse playfield ray selected from eight patterns on alternate frames. During a bomb, the intervening frames draw its expanding outline. Draw the turret and enemies with player graphics. Keep the HUD in a separate strip and the arena background black.
 
 The playfield is coarse and normally repeats or mirrors its two halves; independent halves need timed updates. A missile alone cannot be stretched into an arbitrary full-width horizontal ray. See the playfield and missile sections of the [Atari reference](https://alienbill.com/2600/101/docs/stella.html).
 
 For this game, the proposed ray therefore needs a custom display kernel, meaning carefully timed code that draws each screen line. It must produce only the chosen direction, with no unintended mirrored shot. Store compact patterns in ROM and keep changing state small; do not allocate a screen-sized RAM buffer.
 
-A stationary center, eight fixed rays, no trails, and a flash-only bomb are deliberate choices to make that kernel tractable. They are an engineering proposal, not a performance result.
+A stationary center, eight fixed rays, no trails, and four precomputed ring sizes make the kernel tractable. Frame alternation lets both effects use the same timed playfield writes; the prototype's timing is recorded in the kernel notes. Television readability still needs testing.
 
 Do not replace the beam with ordinary traveling bullets as an automatic optimization: that changes one of the requested defining interactions. If a continuous ray proves troublesome, try coarser graphics and simpler enemy scheduling first.
 
@@ -101,13 +106,13 @@ The port would reuse the attack concept and visual identity. Enemy behavior, hit
 
 ## What to prove before expanding scope
 
-1. **Core display:** centered turret, readable beams in all eight directions, one enemy, and a button-triggered bomb flash. Stable timing and responsive controls are the acceptance criteria.
+1. **Core display:** centered turret, readable flashing beams in all eight directions, one enemy, and a button-triggered expanding bomb outline. Stable timing and responsive controls are the acceptance criteria.
 2. **Small combat loop:** two active enemies, both enemy types, fixed bomb radius, cooldown, health, score, and restart. Test same-height enemies, diagonal changes, and simultaneous beam/bomb use.
 3. **Readability and fairness:** verify beam-hit alignment, the bomb-range cue, and bomb-only spawn timing. Check frame timing and RAM/stack use in Stella, then test a real console and joystick.
 4. **Later-level density:** stress-test three enemies, then four, including shared-height and center-convergence cases during beam/bomb use. Record the highest acceptable count, then use validated caps in the level table and playtest each transition.
 
 If this version does not fit cleanly, cut in this order: decorative indicators and animation; arbitrary enemy overlap through stricter spawn spacing; then the active enemy count. A one-enemy version is a diagnostic fallback, not the intended finished game. Judge whether it can still produce enough challenge before accepting that reduction.
 
-Preserve the eight-way beam and bomb button throughout those experiments. After the reduced game works, prioritize higher enemy counts for later levels before visual embellishments such as a bomb outline. Charge bombs, sweep effects, shifters, reflectors, XP, and weapon upgrades remain outside the initial scope; level progression is included.
+Preserve the eight-way beam and bomb button throughout those experiments. After testing the accepted ring/beam experiment and completing the reduced game, prioritize higher enemy counts for later levels before further visual effects. Charge bombs, sweep effects, shifters, reflectors, XP, and weapon upgrades remain outside the initial scope; level progression is included.
 
-The recommended cuts are sufficient to define a credible prototype. The unresolved question is whether the chosen renderer can meet its timing budget with the two-enemy overlap cases; claiming a guaranteed enemy count before that test would overstate the evidence.
+The prototype meets emulator timing for two static enemies and simultaneous beam/bomb feedback. Movement and combat still need implementation; hardware readability and later-level enemy counts remain to be validated.

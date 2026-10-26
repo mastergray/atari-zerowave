@@ -33,31 +33,68 @@ def main():
     shutil.copyfile(ROOT / "build/atari-zerowave.bin", rom)
     shutil.copyfile(ROOT / "build/atari-zerowave.sym", rom.with_suffix(".sym"))
     marker = f"print #{int(time.time()) % 10000000}"
-    commands = ["base dec", marker, "frame #5", "print _fcount", "print _scan", "print _cycleslo", "savesnap"]
+    commands = ["base dec", marker]
+    labels, advances = [], []
+
+    def frame(count=1):
+        commands.extend([f"frame #{count}", "print _cycleslo"])
+        advances.append(count)
+
+    def capture(label):
+        # DisplayPattern still describes the completed frame at the VSYNC stop;
+        # gameplay counters already describe the next frame's update.
+        commands.extend(["print *DisplayPattern", "savesnap"])
+        labels.append(label)
+
+    frame(5)
+    capture("neutral")
     directions = [("N", ["up"]), ("NE", ["up", "right"]), ("E", ["right"]), ("SE", ["down", "right"]),
                   ("S", ["down"]), ("SW", ["down", "left"]), ("W", ["left"]), ("NW", ["up", "left"])]
-    for _, held in directions:
+    for name, held in directions:
         for direction in ("up", "down", "left", "right"):
             # Debugger commands set electrical pin levels: zero is pressed.
             commands.append(f"joy0{direction} #{int(direction not in held)}")
-        commands.extend(["frame #2", "print *Direction", "print _cycleslo", "savesnap"])
-    # frame stops at the next VSYNC, before that frame is drawn. One additional
-    # frame makes the new flash visible in the completed framebuffer snapshot.
-    commands.extend(["joy0fire #0", "frame #1", "print *BombCount", "print *BombCooldown", "frame #1", "savesnap",
-                     "frame #64", "print *BombCount", "print *BombCooldown", "joy0fire #1", "frame #1"])
+        frame(2)
+        commands.append("print *Direction")
+        capture(f"{name}-0")
+        frame()
+        capture(f"{name}-1")
+    commands.append("joy0fire #0")
+    frame()
+    commands.extend(["print *BombCount", "print *BombCooldown"])
+    # Capture all 16 completed animation frames, including interleaved beams.
+    for elapsed in range(16):
+        frame()
+        capture(f"bomb-{elapsed:02}")
+    frame(49)
+    commands.extend(["print *BombCount", "print *BombCooldown", "joy0fire #1"])
+    frame()
     # Stella 6 has no SELECT debugger command. Drive just port B's SELECT bit
     # as an output in this test; the ROM still samples SWCHB and detects edges.
     commands.append("ram SWBCNT #2")
     for _ in range(8):
-        commands.extend(["ram SWCHB $FD", "frame #1", "ram SWCHB $FF", "frame #1"])
-    commands.extend(["print *LayoutId", "frame #1", "print *SelectedSlot", "savesnap",
-                     "frame #1", "print *SelectedSlot", "savesnap", "print _cycleslo"])
-    for _ in range(2):
-        commands.extend(["ram SWCHB $FD", "frame #1", "ram SWCHB $FF", "frame #1", "print *LayoutId",
-                         "frame #1", "savesnap", "frame #1", "savesnap"])
+        commands.append("ram SWCHB $FD")
+        frame()
+        commands.append("ram SWCHB $FF")
+        frame()
+    for layout in ("same-height", "near-turret", "north-south"):
+        if layout != "same-height":
+            commands.append("ram SWCHB $FD")
+            frame()
+            commands.append("ram SWCHB $FF")
+            frame()
+        commands.extend(["print *LayoutId", "joy0fire #0"])
+        frame()
+        commands.append("print *BombCount")
+        frame(13)  # largest ring, with both enemy phases across the next two captures
+        commands.append("print *SelectedSlot")
+        capture(f"{layout}-0")
+        frame()
+        commands.append("print *SelectedSlot")
+        capture(f"{layout}-1")
+        commands.append("joy0fire #1")
+        frame(48)  # release and recover before the next layout's bomb
     commands.extend(["ram SWBCNT #0", "print _fcount", "saveses"])
-    labels = ["neutral"] + [name for name, _ in directions] + ["bomb"]
-    labels += [f"{layout}-{phase}" for layout in ("same-height", "near-turret", "north-south") for phase in (0, 1)]
     (run / "commands.script").write_text("\n".join(commands) + "\n")
     # Stella 6 runs autoexec before the debugger display is fully initialized.
     # Send commands after its window opens instead of trusting startup snapshots.
@@ -112,17 +149,27 @@ def main():
         pattern = re.escape("> print " + expression) + r"\n[^\n]* #([0-9]+)"
         return [int(value) for value in re.findall(pattern, session)]
     assert values("*Direction") == list(range(8)), values("*Direction")
-    assert values("*BombCount") == [1, 1], values("*BombCount")
+    assert values("*BombCount") == [1, 1, 2, 3, 4], values("*BombCount")
     assert values("*BombCooldown") == [60, 0], values("*BombCooldown")
     assert values("*LayoutId") == [8, 9, 10], values("*LayoutId")
-    assert set(values("*SelectedSlot")) == {0, 1}, values("*SelectedSlot")
+    slots = values("*SelectedSlot")
+    assert len(slots) == 6 and all(set(slots[i:i + 2]) == {0, 1} for i in (0, 2, 4)), slots
+    patterns = values("*DisplayPattern")
+    assert len(patterns) == len(labels) and patterns[0] == 8, patterns
+    for direction in range(8):
+        assert sorted(patterns[1 + direction * 2:3 + direction * 2]) == [direction, 8], patterns
+    bomb_patterns = patterns[17:33]
+    assert [p for p in bomb_patterns if p >= 9] == [9, 9, 10, 10, 11, 11, 12, 12], bomb_patterns
+    assert bomb_patterns.count(7) == 8, bomb_patterns
+    for i in (33, 35, 37):
+        assert sorted(patterns[i:i + 2]) == [7, 12], patterns
     cycles = values("_cycleslo")
-    # Eight directions, each advanced by exactly two stable frames.
-    assert len(cycles) == 10, cycles
-    assert all(b - a == 2 * 262 * 76 for a, b in zip(cycles[:8], cycles[1:9])), cycles
+    assert len(cycles) == len(advances), (cycles, advances)
+    assert all(b - a == count * 262 * 76 for a, b, count in zip(cycles, cycles[1:], advances[1:])), cycles
     report = {"directory": str(run.relative_to(ROOT)), "snapshots": dict(zip(labels, [p.name for p in snapshots])), "session": sessions[0].name,
               "frame_lines": 262, "cycles_per_frame": 262 * 76, "direction_ids": values("*Direction"),
-              "bomb_count_after_held_button": values("*BombCount")[-1]}
+              "bomb_count_after_held_button": values("*BombCount")[1],
+              "display_patterns": dict(zip(labels, patterns))}
     (out / "latest.json").write_text(json.dumps(report, indent=2) + "\n")
     print(f"Stella executed the scenarios and captured {len(snapshots)} TIA images in {run}")
     print(f"Debugger results: {sessions[0]}")

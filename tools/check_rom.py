@@ -28,7 +28,7 @@ def check():
     for bank in (0, 1):
         assert sym[f"Bank{bank}End"] <= 0xff80, "Bank overflows trampoline area"
     for name, address in sym.items():
-        if name.startswith("BeamStream") or name == "TurretRows":
+        if name.startswith("PlayfieldStream") or name == "TurretRows":
             assert (address & 255) + 79 < 256, f"Page crossing: {name}"
         elif name.startswith("HudPlane"):
             assert (address & 255) + 23 < 256, f"Page crossing: {name}"
@@ -42,6 +42,9 @@ def check():
         "bank_bytes_before_tail": [sym[f"Bank{bank}End"] - 0xf000 for bank in (0, 1)],
         "bank_headroom_before_tail": [0xff80 - sym[f"Bank{bank}End"] for bank in (0, 1)],
         "beam_streams": manifest["unique_beam_streams"],
+        "playfield_streams": manifest["unique_playfield_streams"],
+        "bomb_radii": manifest["bomb_radii"],
+        "bomb_animation_frames": manifest["bomb_animation_frames"],
         "reference_commit": "fb68a689d3fa6346696dd2310e5dd3d167c065a1",
     }
     (ROOT / "build/build-report.json").write_text(json.dumps(report, indent=2) + "\n")

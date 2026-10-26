@@ -32,30 +32,47 @@ PrepareDone:
     sta VBLANK
     jmp HudLoop
 
-; Prepare four beam pointers and one enemy sprite pointer; A/X/Y clobbered.
+; Prepare four playfield pointers and one enemy sprite pointer; A/X/Y clobbered.
+; Display alternation never changes BeamEnabled or the one-update BombEvent.
 ; Age selection is independent of slot parity, so a freed slot cannot starve another.
 PrepareRender:
     SUBROUTINE
+    lda #COLOR_BEAM
+    sta ArenaColor
+    lda FrameCounter
+    and #1
+    sta FramePhase
+    bne .effectFrame
     ldy Direction
     cpy #8
-    bcc .validDirection
-    ldy #8                ; blank beam
-.validDirection:
-    lda BeamLeft1Lo,y
+    bcc .patternReady
+    ldy #8                ; neutral
+    bne .patternReady
+.effectFrame:
+    ldy #8                ; beam off on alternate frames
+    ldx BombTimer
+    beq .patternReady
+    lda BombPatternByTimer,x
+    tay
+    lda #COLOR_BOMB
+    sta ArenaColor
+.patternReady:
+    sty DisplayPattern
+    lda PatternLeft1Lo,y
     sta BeamLeft1
-    lda BeamLeft1Hi,y
+    lda PatternLeft1Hi,y
     sta BeamLeft1+1
-    lda BeamLeft2Lo,y
+    lda PatternLeft2Lo,y
     sta BeamLeft2
-    lda BeamLeft2Hi,y
+    lda PatternLeft2Hi,y
     sta BeamLeft2+1
-    lda BeamRight0Lo,y
+    lda PatternRight0Lo,y
     sta BeamRight0
-    lda BeamRight0Hi,y
+    lda PatternRight0Hi,y
     sta BeamRight0+1
-    lda BeamRight1Lo,y
+    lda PatternRight1Lo,y
     sta BeamRight1
-    lda BeamRight1Hi,y
+    lda PatternRight1Hi,y
     sta BeamRight1+1
     lda #COLOR_READY
     ldx BombCooldown
@@ -63,12 +80,6 @@ PrepareRender:
     lda #COLOR_WAITING
 .ready:
     sta HudColor
-    lda #COLOR_BACKGROUND
-    ldx BombFlash
-    beq .noFlash
-    lda #COLOR_FLASH
-.noFlash:
-    sta ArenaBackground
     lda #$ff
     sta SelectedSlot
     lda #0
