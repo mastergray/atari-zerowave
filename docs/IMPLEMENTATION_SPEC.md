@@ -4,6 +4,13 @@ Implement the game defined in [PORT_OUTLINE.md](PORT_OUTLINE.md) as a native Ata
 
 The first playable build must support two active enemies. The implementation reserves four enemy slots and separates storage capacity from the current level's cap. Three- and four-enemy levels are enabled only after their display schedules pass the tests below. Controls and combat rules are requirements; tuning values are initial defaults that may change through playtesting.
 
+Implementation status: the controls/display prototype for milestones 0 and 1 is
+available. See [build and play instructions](../README.md) and
+[measured kernel timing](KERNEL_TIMING.md). It includes static two-enemy stress
+layouts and bomb feedback; movement, damage, HP, score, and levels remain future
+work. SELECT cycles test layouts in this prototype only. The sections below
+continue to define the full game target.
+
 ## Platform and build decisions
 
 | Item | Implementation decision |
@@ -237,7 +244,8 @@ Cross-bank transitions use explicit jump stubs whose next instructions are ident
 
 ### Planned project files
 
-These are implementation deliverables, not files supplied by the spec:
+These are the planned deliverables for the full game; the prototype supplies the
+build, input, display, generation, and cartridge-test subset:
 
 | Path | Responsibility |
 | --- | --- |
@@ -260,11 +268,11 @@ Each assembly routine declares inputs, outputs, register clobbers, scratch use, 
 
 ## Build and verification workflow
 
-Define `make all` to generate tables and produce `build/atari-zerowave.bin`, `.sym`, and `.lst`. The ROM must be exactly 8,192 bytes with deterministic padding. Define `make check` for host checks, `make run` for a configured NTSC/F8 Stella launch, and `make debug` for the same cartridge with symbols and scenarios. These targets are to be implemented.
+`make all` generates tables and produces `build/atari-zerowave.bin`, `.sym`, and `.lst`. The ROM must be exactly 8,192 bytes with deterministic padding. `make check` runs host checks, `make run` launches configured NTSC/F8 Stella, and `make debug` opens the same cartridge with symbols. `make stella-check` runs the automated display scenarios under X11.
 
 Pin the assembler/tool inputs and record versions, source revision, validated enemy cap, and ROM checksum in a build report. Fail on unresolved symbols, bank overflow, RAM/stack reservation overlap, missing table entries, or mismatched common stubs. Keep build output disposable and out of the reference checkout.
 
-DASM must be made available before assembly; it was not found on the current shell path during planning. Stella is installed, but interactive validation requires a graphical session or virtual display. These prerequisites do not prevent writing the source or running host checks.
+`make bootstrap` obtains the pinned DASM and py65 sources under `.tools/` and builds DASM locally. Stella validation requires a graphical session or virtual display; the automated invocation is `xvfb-run -a make stella-check`.
 
 Host tests verify the integer model and generated data; they do not prove the assembly or TIA timing. Run the same state/input scenarios against the actual cartridge and compare its RAM state using symbols and debugger checkpoints. Use Stella's [debugger timers, watches, scanline stepping, and symbol/list support](https://stella-emu.github.io/docs/debugger.html) to inspect the assembled result. Check the release image too if debug instrumentation changes code placement.
 

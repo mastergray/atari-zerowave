@@ -1,0 +1,2 @@
+# Preserve the vendored DASM header byte-for-byte, including upstream whitespace.
+vendor/dasm/vcs.h -whitespace

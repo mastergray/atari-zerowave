@@ -1,0 +1,13 @@
+[
+  {"name": "North", "enemies": [{"lane": 0, "radius": 48, "kind": "triangle"}]},
+  {"name": "Northeast", "enemies": [{"lane": 1, "radius": 48, "kind": "triangle"}]},
+  {"name": "East", "enemies": [{"lane": 2, "radius": 48, "kind": "triangle"}]},
+  {"name": "Southeast in bomb range", "enemies": [{"lane": 3, "radius": 20, "kind": "square"}]},
+  {"name": "South", "enemies": [{"lane": 4, "radius": 48, "kind": "triangle"}]},
+  {"name": "Southwest", "enemies": [{"lane": 5, "radius": 48, "kind": "square"}]},
+  {"name": "West", "enemies": [{"lane": 6, "radius": 48, "kind": "triangle"}]},
+  {"name": "Northwest", "enemies": [{"lane": 7, "radius": 48, "kind": "square"}]},
+  {"name": "East and west same height", "enemies": [{"lane": 2, "radius": 48, "kind": "triangle"}, {"lane": 6, "radius": 48, "kind": "square"}]},
+  {"name": "Diagonals near turret", "enemies": [{"lane": 1, "radius": 12, "kind": "triangle"}, {"lane": 7, "radius": 12, "kind": "square"}]},
+  {"name": "North and south", "enemies": [{"lane": 0, "radius": 40, "kind": "triangle"}, {"lane": 4, "radius": 40, "kind": "square"}]}
+]

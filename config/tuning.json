@@ -1,0 +1,22 @@
+{
+  "arena_rows": 80,
+  "center_x": 80,
+  "center_y": 40,
+  "extent_x": 44,
+  "extent_y": 35,
+  "spawn_radius": 63,
+  "contact_radius": 8,
+  "bomb_radius": 24,
+  "bomb_cooldown": 60,
+  "bomb_flash": 6,
+  "colors": {
+    "beam": 174,
+    "turret": 14,
+    "triangle": 206,
+    "square": 78,
+    "ready": 198,
+    "waiting": 38,
+    "background": 0,
+    "flash": 50
+  }
+}
