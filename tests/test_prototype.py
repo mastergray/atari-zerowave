@@ -157,8 +157,8 @@ class CartridgeTests(unittest.TestCase):
         machine.bus.events.clear()
         machine.frame(direction_mask=9, fire=True)
         origin = machine.bus.vsync_edges[-1] // 76 * 76
-        expected = [(5, 0x0d), (13, 0x0e), (21, 0x1c), (29, 0x0f),
-                    (36, 0x1b), (44, 0x0d), (52, 0x0e), (57, 0x0f)]
+        expected = [(3, 0x0d), (11, 0x0e), (19, 0x1c), (27, 0x0f),
+                    (34, 0x1b), (42, 0x0d), (50, 0x0e), (53, 0x0f)]
         for line in range(72, 232):
             writes = [(cycle % 76, register) for cycle, register, _ in machine.bus.events
                       if (cycle - origin) // 76 == line and register in (0x0d, 0x0e, 0x0f, 0x1b, 0x1c)]
@@ -173,12 +173,12 @@ class CartridgeTests(unittest.TestCase):
             line = (cycle - origin) // 76 - 72
             if 0 <= line < 160 and register in (0x0d, 0x0e, 0x0f):
                 scanlines[line].append((cycle % 76, register, value))
-        schedule = [(5, 0x0d), (13, 0x0e), (29, 0x0f), (44, 0x0d), (52, 0x0e), (57, 0x0f)]
+        schedule = [(3, 0x0d), (11, 0x0e), (27, 0x0f), (42, 0x0d), (50, 0x0e), (53, 0x0f)]
         for line, writes in enumerate(scanlines):
             self.assertEqual(writes, [(cycle, register, value) for (cycle, register), value
                                      in zip(schedule, rows[line // 2])], (pattern, line))
 
-    def test_beam_flashes_without_disabling_input_or_sound(self):
+    def test_beam_pulses_without_blank_frames_or_disabling_input_or_sound(self):
         machine = self.machine()
         for direction, mask in enumerate((1, 9, 8, 10, 2, 6, 4, 5, 0)):
             patterns = []
@@ -190,7 +190,54 @@ class CartridgeTests(unittest.TestCase):
                 self.assertEqual(machine.value("BeamEnabled"), int(mask != 0))
                 self.assertEqual(machine.bus.tia[0x19], 2 if mask else 0)
                 self.assert_rendered_pattern(machine, pattern)
-            self.assertEqual(sorted(patterns), sorted([direction, 8]))
+            self.assertEqual(patterns, [direction, direction])
+
+    def test_beam_core_glow_and_sprite_rows_meet_timing(self):
+        machine = self.machine()
+        tuning = assets.load_config()
+        seen_colors = set()
+        # Every hue, both brightness phases, and a counter rollover.
+        machine.poke("FrameCounter", 248)
+        for _ in range(40):
+            machine.bus.events.clear()
+            self.assertEqual(machine.frame(9), 262 * 76)
+            core = machine.value("ArenaColor")
+            phase = (machine.value("FrameCounter") >> 2) & 7
+            self.assertEqual(core, tuning["beam_core_colors"][phase] & (0xfa if machine.value("FramePhase") else 0xff))
+            seen_colors.add(core)
+            self.assert_arena_colors_and_sprites(machine)
+        self.assertEqual(len(seen_colors), 16)
+
+    def assert_arena_colors_and_sprites(self, machine):
+        tuning = assets.load_config()
+        phase = (machine.value("FrameCounter") >> 2) & 7
+        ring = machine.value("DisplayPattern") >= 9
+        origin = machine.bus.vsync_edges[-1] // 76 * 76
+        selected = machine.value("SelectedSlot")
+        top = machine.value("EnemyY", selected) if selected != 255 else 0
+        kind = machine.value("EnemyFlags", selected) if selected != 255 else 0
+        shape = [0x18, 0x3c, 0x7e, 0xff]
+        if kind & 0x40:
+            shape = [0x7e] * 4 if machine.value("EnemyRadiusHi", selected) <= 24 else [0x7e, 0x42, 0x42, 0x7e]
+        writes = []
+        for cycle, register, value in machine.bus.events:
+            line = (cycle - origin) // 76 - 72
+            if not 0 <= line < 160 or register not in (0x08, 0x1b, 0x1c):
+                continue
+            row = line // 2
+            if register == 0x08:
+                expected = machine.value("ArenaColor") if line % 2 else tuning["beam_glow_colors"][(79 - row + phase) % 8]
+                if ring:
+                    expected = tuning["colors"]["bomb"]
+                self.assertEqual((cycle % 76, value), (66, expected))
+            elif register == 0x1b:
+                expected = [0x18, 0x3c, 0x7e, 0x3c][row - 38] if 38 <= row < 42 else 0
+                self.assertEqual((cycle % 76, value), (34, expected))
+            else:
+                expected = shape[row - top] if selected != 255 and top <= row < top + 4 else 0
+                self.assertEqual((cycle % 76, value), (19, expected))
+            writes.append(register)
+        self.assertEqual(len(writes), 160 * 3)
 
     def test_every_ring_and_beam_phase_preserves_two_enemy_schedule(self):
         # A press on either parity must show each ring twice, not skip a stage.
@@ -215,8 +262,9 @@ class CartridgeTests(unittest.TestCase):
                     self.assertEqual(pattern, 9 + elapsed // 4)
                     rings.append(pattern)
                 else:
-                    self.assertEqual(pattern, 8 if machine.value("FramePhase") else elapsed % 8)
+                    self.assertEqual(pattern, elapsed % 8)
                 self.assert_rendered_pattern(machine, pattern)
+                self.assert_arena_colors_and_sprites(machine)
                 selected.append(machine.value("SelectedSlot"))
                 self.assertEqual(machine.bus.tia[0x09], 0)  # no arena background flash
             self.assertEqual(rings, [9, 9, 10, 10, 11, 11, 12, 12])

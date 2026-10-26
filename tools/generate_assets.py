@@ -104,6 +104,9 @@ def generate():
     assert tuning["bomb_stage_frames"] >= 2 and tuning["bomb_stage_frames"] % 2 == 0
     assert 0 < tuning["bomb_sound_frames"] <= min(15, animation_frames)
     assert animation_frames < tuning["bomb_cooldown"] <= 255
+    assert len(tuning["beam_core_colors"]) == len(tuning["beam_glow_colors"]) == 8
+    assert all(0 <= c <= 255 and c & 15 == 14 for c in tuning["beam_core_colors"])
+    assert all(0 <= c <= 255 and c & 15 == 6 for c in tuning["beam_glow_colors"])
     radii = bomb_radii(tuning)
     assert radii == sorted(set(radii)) and radii[0] > 0
     OUT.mkdir(parents=True, exist_ok=True)
@@ -132,6 +135,7 @@ def generate():
             labels.append(streams[values])
         references.append(labels)
     render = ["; Generated display data. All indexed loads are page-safe.\n"]
+    render.append(byte_lines("BeamCoreColors", tuning["beam_core_colors"]))
     # Timer counts down. Zero is neutral; 16..13 select the smallest ring, etc.
     render.append(byte_lines("BombPatternByTimer", [8] + [
         9 + (animation_frames - timer) // tuning["bomb_stage_frames"]
@@ -142,16 +146,22 @@ def generate():
     # Three 80-byte streams fit in a 256-byte page, preserving five-cycle
     # indirect loads while reclaiming the old 128-byte alignment gaps.
     for index, (values, label) in enumerate(streams.items()):
-        render.append(byte_lines(label, values, 256 if index % 3 == 0 else None))
+        render.append(byte_lines(label, values[::-1], 256 if index % 3 == 0 else None))
     turret = [0] * tuning["arena_rows"]
     turret[38:42] = [0x18, 0x3c, 0x7e, 0x3c]
-    render.append(byte_lines("TurretRows", turret, 128))
+    render.append(byte_lines("TurretRows", turret[::-1], 128))
     for name, shape in (
         ("Triangle", [0x18, 0x3c, 0x7e, 0xff]),
         ("Square", [0x7e, 0x42, 0x42, 0x7e]),
         ("SquareReady", [0x7e] * 4),
     ):
-        render.append(byte_lines("Sprite" + name, [0] * 80 + shape + [0] * 80, 256))
+        render.append(byte_lines("Sprite" + name, [0] * 80 + shape[::-1] + [0] * 80, 256))
+        # Use the sprite page's 92-byte tail for color strips. A maximum pointer
+        # offset of seven plus Y=79 remains within the same page (164+7+79=250).
+        if name == "Triangle":
+            render.append(byte_lines("BeamGlowColors", [tuning["beam_glow_colors"][i % 8] for i in range(87)]))
+        elif name == "Square":
+            render.append(byte_lines("BombGlowColors", [tuning["colors"]["bomb"]] * 80))
     hud = hud_rows()
     for plane in range(6):
         render.append(byte_lines(f"HudPlane{plane}", [row[plane] for row in hud], 32))

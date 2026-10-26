@@ -37,25 +37,44 @@ PrepareDone:
 ; Age selection is independent of slot parity, so a freed slot cannot starve another.
 PrepareRender:
     SUBROUTINE
-    lda #COLOR_BEAM
-    sta ArenaColor
     lda FrameCounter
     and #1
     sta FramePhase
+    lda FrameCounter
+    lsr
+    lsr
+    and #7
+    tax
+    clc
+    adc #<BeamGlowColors
+    sta GlowColor
+    lda #>BeamGlowColors
+    sta GlowColor+1
+    lda BeamCoreColors,x
+    ldx FramePhase
+    beq .coreReady
+    and #$fa              ; pulse luminance 14 -> 10, never fully off
+.coreReady:
+    sta ArenaColor
+    lda FramePhase
+    beq .beamFrame
+    ldx BombTimer
     bne .effectFrame
+.beamFrame:
     ldy Direction
     cpy #8
     bcc .patternReady
     ldy #8                ; neutral
     bne .patternReady
 .effectFrame:
-    ldy #8                ; beam off on alternate frames
-    ldx BombTimer
-    beq .patternReady
     lda BombPatternByTimer,x
     tay
     lda #COLOR_BOMB
     sta ArenaColor
+    lda #<BombGlowColors
+    sta GlowColor
+    lda #>BombGlowColors
+    sta GlowColor+1
 .patternReady:
     sty DisplayPattern
     lda PatternLeft1Lo,y
@@ -108,9 +127,9 @@ PrepareRender:
     beq .noEnemy
     lda #0
     sta EnemyAge,x
-    lda #80
-    sec
-    sbc EnemyY,x
+    lda EnemyY,x
+    clc
+    adc #4                ; reversed row index: top maps to sprite byte 83
     sta EnemySprite       ; all sprite streams begin on a page boundary
     lda #>SpriteTriangle
     sta EnemySprite+1

@@ -43,7 +43,7 @@ def main():
     def capture(label):
         # DisplayPattern still describes the completed frame at the VSYNC stop;
         # gameplay counters already describe the next frame's update.
-        commands.extend(["print *DisplayPattern", "savesnap"])
+        commands.extend(["print *DisplayPattern", "print *ArenaColor", "savesnap"])
         labels.append(label)
 
     frame(5)
@@ -94,14 +94,14 @@ def main():
         capture(f"{layout}-1")
         commands.append("joy0fire #1")
         frame(48)  # release and recover before the next layout's bomb
-    commands.extend(["ram SWBCNT #0", "print _fcount", "saveses"])
+    commands.extend(["ram SWBCNT #0", "print _fcount"])
     (run / "commands.script").write_text("\n".join(commands) + "\n")
     # Stella 6 runs autoexec before the debugger display is fully initialized.
     # Send commands after its window opens instead of trusting startup snapshots.
     environment = os.environ.copy()
     environment["XDG_CONFIG_HOME"] = str(run / "config") + "/"
     (run / "config/stella").mkdir(parents=True)
-    previous_sessions = set(Path.home().glob("session_*.txt"))
+    sessions = []
     with (run / "emulator.log").open("w") as log:
         process = subprocess.Popen([
             "stella", "-video", "software", "-audio.enabled", "0",
@@ -113,25 +113,32 @@ def main():
         try:
             time.sleep(1)
             keyboard = Keyboard()
-            for command in commands:
-                keyboard.command(command)
-            deadline = time.monotonic() + args.timeout
-            while time.monotonic() < deadline:
-                # Stella 6 writes saveses to its default home save directory.
-                # Relocate only a new session containing this run's unique marker.
-                sessions = []
-                for candidate in set(Path.home().glob("session_*.txt")) - previous_sessions:
-                    if marker in candidate.read_text():
-                        destination = run / candidate.name
-                        candidate.rename(destination)
-                        sessions.append(destination)
-                if sessions:
-                    break
-                if process.poll() is not None:
-                    raise RuntimeError(f"Stella exited ({process.returncode}); see {run / 'emulator.log'}")
-                time.sleep(0.1)
-            else:
-                raise RuntimeError(f"Stella did not finish its debugger script; see {run}")
+            # Stella 6's saveses corrupts output after its prompt buffer wraps.
+            # Save and clear short chunks without changing emulation state.
+            for start in range(0, len(commands), 60):
+                for command in commands[start:start + 60]:
+                    keyboard.command(command)
+                previous_sessions = set(Path.home().glob("session_*.txt"))
+                keyboard.command(marker)
+                keyboard.command("saveses")
+                deadline = time.monotonic() + args.timeout
+                while time.monotonic() < deadline:
+                    # Stella 6 writes saveses to its default home save directory.
+                    # Collect only a new session containing this run's marker.
+                    candidates = set(Path.home().glob("session_*.txt")) - previous_sessions
+                    owned = [p for p in candidates if marker.encode() in p.read_bytes()]
+                    if owned:
+                        for candidate in owned:
+                            destination = run / candidate.name
+                            shutil.move(str(candidate), str(destination))
+                            sessions.append(destination)
+                        break
+                    if process.poll() is not None:
+                        raise RuntimeError(f"Stella exited ({process.returncode}); see {run / 'emulator.log'}")
+                    time.sleep(0.1)
+                else:
+                    raise RuntimeError(f"Stella did not finish its debugger script; see {run}")
+                keyboard.command("cls")
         finally:
             process.terminate()
             try:
@@ -142,9 +149,11 @@ def main():
     snapshots = sorted(run.glob("*.png"))
     if len(snapshots) != len(labels):
         raise RuntimeError(f"Expected {len(labels)} TIA snapshots; got {len(snapshots)} in {run}")
-    session = sessions[0].read_text()
+    session = "\n".join(p.read_text(errors="replace") for p in sessions)
+    transcript = run / "session.txt"
+    transcript.write_text(session)
     if any(error in session for error in ("Unknown command", "No such command", "Invalid")):
-        raise RuntimeError(f"Debugger script error in {sessions[0]}")
+        raise RuntimeError(f"Debugger script error in {transcript}")
     def values(expression):
         pattern = re.escape("> print " + expression) + r"\n[^\n]* #([0-9]+)"
         return [int(value) for value in re.findall(pattern, session)]
@@ -156,23 +165,28 @@ def main():
     assert len(slots) == 6 and all(set(slots[i:i + 2]) == {0, 1} for i in (0, 2, 4)), slots
     patterns = values("*DisplayPattern")
     assert len(patterns) == len(labels) and patterns[0] == 8, patterns
+    colors = values("*ArenaColor")
+    assert len(colors) == len(labels), colors
     for direction in range(8):
-        assert sorted(patterns[1 + direction * 2:3 + direction * 2]) == [direction, 8], patterns
+        start = 1 + direction * 2
+        assert patterns[start:start + 2] == [direction, direction], patterns
+        assert sorted(color & 15 for color in colors[start:start + 2]) == [10, 14], colors
     bomb_patterns = patterns[17:33]
     assert [p for p in bomb_patterns if p >= 9] == [9, 9, 10, 10, 11, 11, 12, 12], bomb_patterns
     assert bomb_patterns.count(7) == 8, bomb_patterns
     for i in (33, 35, 37):
         assert sorted(patterns[i:i + 2]) == [7, 12], patterns
+    assert all(color == 46 for pattern, color in zip(patterns, colors) if pattern >= 9), colors
     cycles = values("_cycleslo")
     assert len(cycles) == len(advances), (cycles, advances)
     assert all(b - a == count * 262 * 76 for a, b, count in zip(cycles, cycles[1:], advances[1:])), cycles
-    report = {"directory": str(run.relative_to(ROOT)), "snapshots": dict(zip(labels, [p.name for p in snapshots])), "session": sessions[0].name,
+    report = {"directory": str(run.relative_to(ROOT)), "snapshots": dict(zip(labels, [p.name for p in snapshots])), "session": transcript.name,
               "frame_lines": 262, "cycles_per_frame": 262 * 76, "direction_ids": values("*Direction"),
               "bomb_count_after_held_button": values("*BombCount")[1],
-              "display_patterns": dict(zip(labels, patterns))}
+              "display_patterns": dict(zip(labels, patterns)), "arena_colors": dict(zip(labels, colors))}
     (out / "latest.json").write_text(json.dumps(report, indent=2) + "\n")
     print(f"Stella executed the scenarios and captured {len(snapshots)} TIA images in {run}")
-    print(f"Debugger results: {sessions[0]}")
+    print(f"Debugger results: {transcript}")
 
 
 if __name__ == "__main__":

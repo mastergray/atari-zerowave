@@ -34,15 +34,16 @@ SeparatorLoop:
     sta COLUPF
     lda #COLOR_BACKGROUND
     sta COLUBK
-    ldy #0
+    ldy #ARENA_ROWS-1      ; reverse indexing saves two loop cycles
 
 ; Four varying PF streams serve both rays and rings: neither reaches columns
 ; 0..3 or 32..39. Sprite writes precede their earliest possible pixels.
-; Completion cycles from each WSYNC: PF0=5, PF1=13, GRP1=21, PF2=29,
-; GRP0=36, PF0=44, PF1=52, PF2=57. Second line repeats the same logical row.
+; X is zero after the separator loop. Reuse it for constant-zero PF writes.
+; Completion cycles: PF0=3, PF1=11, GRP1=19, PF2=27, GRP0=34,
+; PF0=42, PF1=50, PF2=53. Color changes at cycle 66, past the ray's right edge,
+; preparing the next physical line. One bright core line, one colored glow line.
     MAC ARENA_SCANLINE
-    lda #0
-    sta PF0
+    stx PF0
     lda (BeamLeft1),y
     sta PF1
     lda (EnemySprite),y
@@ -55,17 +56,24 @@ SeparatorLoop:
     sta PF0
     lda (BeamRight1),y
     sta PF1
-    lda #0
-    sta PF2
+    stx PF2
     ENDM
 ArenaLoop:
     sta WSYNC
     ARENA_SCANLINE
+    lda (GlowColor),y      ; 58
+    bit Temp              ; 61; timing only, value/flags unused
+    nop                   ; 63
+    sta COLUPF            ; 66: second physical line uses the glow color
     sta WSYNC
     ARENA_SCANLINE
-    iny
-    cpy #ARENA_ROWS
-    bne ArenaLoop
+    lda ArenaColor        ; 56
+    nop                   ; 58
+    nop                   ; 60
+    bit Temp              ; 63
+    sta COLUPF            ; 66: next row starts with its bright core
+    dey                   ; 68
+    bpl ArenaLoop         ; 71; next WSYNC completes at 74
     lda #2
     sta WSYNC             ; first overscan line
     sta VBLANK

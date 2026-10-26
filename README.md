@@ -5,7 +5,7 @@ A native Atari 2600 prototype of the stationary-turret game described in
 The cartridge targets NTSC, uses ordinary 8 KiB F8 banking, and needs no extra RAM.
 
 The current build implements the first controls/display milestone: a centered
-turret, eight-way flashing beam, button-triggered expanding bomb ring and sound,
+turret, eight-way plasma beam, button-triggered expanding bomb ring and sound,
 one-second bomb cooldown, and eleven static enemy layouts. Enemies do not move
 or take damage yet. Health, score, levels, and title/game-over screens come later.
 
@@ -36,7 +36,7 @@ custom mappings can be changed in its input settings.
 
 | Control | Stella key | Prototype behavior |
 | --- | --- | --- |
-| Joystick direction | Arrow keys; combine two for diagonals | Hold to fire a flashing beam; release to stop |
+| Joystick direction | Arrow keys; combine two for diagonals | Hold to fire a glowing, color-cycling beam; release to stop |
 | Joystick button | Space | Expanding bomb ring and sound on a fresh press, if ready |
 | SELECT | F1 | Advance to the next static test layout |
 | RESET | F2 | Return to the first layout and clear bomb state |
@@ -45,12 +45,18 @@ The `BOMB` label is green when ready and amber during the 60-update cooldown.
 Holding the button produces one bomb; pressing during cooldown does not queue
 another. The gold bomb outline expands through four sizes over 16 updates
 (about a quarter-second), ending at the bomb's range. During that animation,
-ring and beam frames alternate. The cyan beam also flashes every other frame
-outside bombs. Its input and sound remain active throughout while a direction
-is held. RESET with fire held does not trigger a bomb.
+ring and beam frames alternate. Outside bombs the beam stays visible every frame,
+with a bright cycling core and darker rainbow shading. The core pulses between
+two brightness levels instead of blinking off. Its input and sound remain active
+throughout while a direction is held. RESET with fire held does not trigger a bomb.
+
+Each two-scanline beam row has one bright core line and one darker glow line.
+This narrows the bright portion vertically; the geometry and range are unchanged.
+The playfield still has a four-color-clock minimum horizontal width, so narrower
+vertical beams would need a different graphics technique.
 
 Try bombing while changing direction, and while the stick is neutral. Check
-whether the expanding ring is easy to see and whether the flashing beam remains
+whether the expanding ring is easy to see and whether the plasma beam remains
 easy to aim. The ring is visual feedback for the planned immediate, fixed-radius
 damage; it does not introduce a moving damage front or a lingering blast.
 
@@ -59,16 +65,18 @@ east/west at the same height, two diagonals near the turret, and a north/south p
 Triangles are green. Squares are pink and fill in when inside bomb range. The SE
 layout demonstrates this cue. These are visual fixtures: firing does not remove
 them. Two-target layouts alternate one enemy per frame, so each appears at about
-30 Hz. The turret remains present every frame; each effect appears at about 30 Hz.
-Bombs do not reduce enemy appearances further.
+30 Hz. The turret remains present every frame. The beam appears at 60 Hz normally;
+during bombs, beam and ring each appear at about 30 Hz. Bombs do not reduce enemy
+appearances further.
 
 ## Validation and development
 
-`make check` runs 16 tests covering generated geometry, all joystick combinations,
+`make check` runs 17 tests covering generated geometry, all joystick combinations,
 button edges and exact cooldown boundaries, both startup banks, stack/guard
 integrity, fixed frame lengths, kernel write deadlines, and display fairness.
 Tests check every animation stage for presses on either frame phase, actual
-playfield data, continuous beam state, and the separate short sound envelope.
+playfield data, core/glow color deadlines, sprite rows, every palette phase,
+continuous beam state, and the separate short sound envelope.
 The CPU tests execute the assembled cartridge using py65 and a limited VCS bus;
 they do not simulate TIA pixels.
 

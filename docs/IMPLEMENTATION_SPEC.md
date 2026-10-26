@@ -7,7 +7,7 @@ The first playable build must support two active enemies. The implementation res
 Implementation status: the controls/display prototype for milestones 0 and 1 is
 available. See [build and play instructions](../README.md) and
 [measured kernel timing](KERNEL_TIMING.md). It includes static two-enemy stress
-layouts, a flashing beam, and an expanding bomb outline; movement, damage, HP, score, and levels remain future
+layouts, a plasma beam, and an expanding bomb outline; movement, damage, HP, score, and levels remain future
 work. SELECT cycles test layouts in this prototype only. The sections below
 continue to define the full game target.
 
@@ -47,7 +47,7 @@ Invert and shift the direction nibble to obtain `up=1`, `down=2`, `left=4`, `rig
 | NW | 5 | 7 |
 | Neutral | 0 | 255 |
 
-Holding a direction enables continuous beam damage in that direction. The graphic flashes on alternate frames, independently of damage. Diagonals produce one diagonal beam. Changing direction changes the next visible beam phase; neutral disables both its graphic and damage. Remember the last valid direction separately if needed for a HUD cue. Do not require button input to fire the beam.
+Holding a direction enables continuous beam damage in that direction. The graphic stays visible with a pulsing, color-cycling core and darker rainbow shading; during bombs it shares alternate frames with the ring. Diagonals produce one diagonal beam. Changing direction changes the next visible beam phase; neutral disables both its graphic and damage. Remember the last valid direction separately if needed for a HUD cue. Do not require button input to fire the beam.
 
 A button press edge detonates a bomb only when its cooldown is zero. Holding the button never repeats, and presses during cooldown are discarded rather than queued. The beam continues during a bomb. Maintain button history even when an action is rejected or the game is between levels.
 
@@ -180,9 +180,11 @@ After level 8, reuse the final difficulty row. Track a displayed level number up
 
 ## Beam and enemy rendering
 
-Share the playfield between the beam and bomb outline, with player 0 for the turret and player 1 for enemies. Leave missiles and ball disabled initially. Keep the background black; use cyan for beam frames and gold for ring frames. HUD graphics occupy a separate vertical region.
+Share the playfield between the beam and bomb outline, with player 0 for the turret and player 1 for enemies. Leave missiles and ball disabled initially. Keep the background black; use cycling rainbow colors for beam frames and fixed gold for ring frames. HUD graphics occupy a separate vertical region.
 
-The beam uses eight opaque raster patterns, one selected by direction. Both halves of the playfield must be independently controlled so a right shot cannot create a left copy. Repeat each logical row across two scanlines. Keep the turret visible every frame. Draw the beam on even frames; on odd frames draw the active bomb outline, or blank when no bomb is active. This gives each effect about 30 appearances per second without adding omissions to enemy graphics. Input, damage, and beam audio remain independent of this display phase. Use no transparency or trails.
+The beam uses eight opaque raster patterns, one selected by direction. Both halves of the playfield must be independently controlled so a right shot cannot create a left copy. Repeat each logical row's shape across two scanlines: a bright core line and a darker rainbow glow line. Cycle core hues every four frames and pulse luminance between 14 and 10; vary the glow by row and phase at luminance 6. The one-scanline bright core reduces apparent vertical thickness, while horizontal resolution remains four color clocks per playfield cell.
+
+Keep the turret visible every frame. Draw the beam on both frame phases normally. During a bomb, odd frames draw the ring and even frames draw the beam, giving each effect about 30 appearances per second without adding omissions to enemy graphics. Ring colors stay gold on both physical scanlines. Input, damage, and beam audio remain independent of this display phase. Use no transparency or trails.
 
 Generate four ring sizes in the same radial geometry as the lanes, initially radii 6, 12, 18, and 24. Each lasts four updates, ensuring two visible ring frames regardless of the firing phase. The final outline marks the bomb's maximum radius. Treat the 16-update animation as feedback for immediate damage, not a persisting blast. Validate both beam/ring phases, neutral-stick bombs, every stage, and target visibility during the largest ring.
 
@@ -228,7 +230,7 @@ The initial map uses the full available address range, with explicit reserve and
 | `$F0–$FF` | 16 | Stack reservation |
 | Total | 128 | Includes stack and margin |
 
-The 24 renderer bytes currently hold four two-byte playfield pointers, a two-byte sprite pointer, selected slot, HUD color, arena effect color, display-pattern ID, and ten reserved bytes. Later sprite reuse must fit or explicitly revise this allocation. Scratch can be reused only across nonoverlapping lifetimes; record clobbered registers and scratch in each routine's header. ROM switching does not preserve a second copy of RAM.
+The 24 renderer bytes currently hold four two-byte playfield pointers, a two-byte sprite pointer, selected slot, HUD color, arena core color, display-pattern ID, a two-byte glow-color pointer, and eight reserved bytes. Later sprite reuse must fit or explicitly revise this allocation. Scratch can be reused only across nonoverlapping lifetimes; record clobbered registers and scratch in each routine's header. ROM switching does not preserve a second copy of RAM.
 
 Initialize the stack at `$FF` and keep peak stack consumption within 16 bytes, including nested subroutines and any explicit pushes. Verify the high-water mark in the busiest frame. Increasing storage beyond four slots requires a revised map; it is not enabled by changing only a level row.
 
@@ -303,7 +305,7 @@ Use small deterministic fixtures for logic failures, then a longer scripted stre
 | Milestone | Deliverable | Exit criterion |
 | --- | --- | --- |
 | 0 | Pinned build, F8 startup/bank stubs, stable blank ROM | Correct image/vectors and stable frame from either initial bank |
-| 1 | Turret, eight flashing beam patterns, one enemy graphic, expanding bomb outline | Cycle schedule and Stella measurements prove the core display and both effect phases |
+| 1 | Turret, eight plasma beam patterns, one enemy graphic, expanding bomb outline | Cycle schedule and Stella measurements prove the core display and both effect phases |
 | 2 | Input, two-enemy pool/display, movement, combat, HP, score, restart | Rule fixtures pass in the cartridge; two-enemy overlap remains readable |
 | 3 | Both enemy types, bomb cue/cooldown, level table, sound | Opening levels are playable and fair; baseline hardware pass |
 | 4 | Vertical sprite reuse and three-enemy scheduling | Three-enemy stress cases meet timing and omission limits; enable level 4 density |

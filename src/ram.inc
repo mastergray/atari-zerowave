@@ -32,7 +32,8 @@ SelectedSlot    ds 1
 HudColor        ds 1
 ArenaColor      ds 1
 DisplayPattern  ds 1
-RenderReserved  ds 10
+GlowColor       ds 2
+RenderReserved  ds 8
 CurrentButtons  ds 1
 PressedButtons  ds 1
 Temp            ds 1

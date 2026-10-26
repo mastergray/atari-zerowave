@@ -32,25 +32,37 @@ models the behavior in [Stella's RIOT implementation](https://github.com/stella-
 ## Arena scanline schedule
 
 The following are CPU cycles at instruction completion, counted from WSYNC
-release. Both physical scanlines of each logical row use the same schedule.
+release. Both physical scanlines of each logical row use the same graphics-write
+schedule, with separate core/glow color values prepared at the end of each line.
 The playfield is in normal, unreflected mode, with independent writes for its
 left and right halves.
 
 | Cycle | Register | Value |
 | ---: | --- | --- |
-| 5 | PF0 | Zero for left edge |
-| 13 | PF1 | Left beam/ring stream |
-| 21 | GRP1 | Selected enemy row |
-| 29 | PF2 | Left beam/ring stream |
-| 36 | GRP0 | Turret row |
-| 44 | PF0 | Right beam/ring stream |
-| 52 | PF1 | Right beam/ring stream |
-| 57 | PF2 | Zero for right edge |
+| 3 | PF0 | Zero for left edge |
+| 11 | PF1 | Left beam/ring stream |
+| 19 | GRP1 | Selected enemy row |
+| 27 | PF2 | Left beam/ring stream |
+| 34 | GRP0 | Turret row |
+| 42 | PF0 | Right beam/ring stream |
+| 50 | PF1 | Right beam/ring stream |
+| 53 | PF2 | Zero for right edge |
+| 66 | COLUPF | Prepare glow after the first line; core after the second |
 
-The first line then reaches WSYNC at cycle 60. The second line increments Y,
-compares it with 80, branches, and reaches WSYNC by cycle 67. The last row
-enters overscan instead. Indexed streams never cross a page during the kernel.
-The tests check all eight register deadlines on all 160 arena lines.
+The first line then reaches WSYNC at cycle 69. The second line decrements Y,
+branches, and reaches WSYNC by cycle 74 (75 if the branch crosses a page).
+The last row enters overscan instead. X stays zero, allowing three-cycle STX
+instructions for constant-zero PF writes. Reverse row indexing removes the
+separate row-limit comparison, making room for the color work. Playfield,
+turret, and sprite data are stored in reverse row order to preserve their screen
+positions. Indexed streams never cross a page during the kernel.
+
+COLUPF changes after the ray's furthest right pixel, preparing the next physical
+scanline without recoloring the end of the current ray. The first line of each
+logical row is a bright core; the second is a dimmer, spatially varying color.
+This changes the bright core's vertical thickness, not the playfield's minimum
+four-color-clock horizontal width. Tests check all graphics/color deadlines and
+the unchanged upright player graphics on all 160 arena lines.
 
 Generated rays occupy playfield columns 9 through 31; the rings fit inside that
 span. Left PF0 and right PF2
@@ -70,16 +82,24 @@ players at the intended positions after correcting these details.
 
 ## Effect scheduling
 
-`FrameCounter & 1` selects the display phase. Even frames show the selected beam,
-or blank for neutral. Odd frames show a bomb ring when `BombTimer` is nonzero,
-or blank otherwise. Pattern IDs 0–7 are directions, 8 is blank, and 9–12 are
+`FrameCounter & 1` selects the display phase. Normally both phases show the
+selected beam, or blank for neutral. During bombs, odd frames show a ring and
+even frames show the beam. Pattern IDs 0–7 are directions, 8 is blank, and 9–12 are
 the four rings. `DisplayPattern` records the prepared frame for debugger checks.
 
 The ring radii are 6, 12, 18, and 24 in the shared game geometry. Each stage lasts
 four updates, giving two visible appearances per stage regardless of the press
-phase. The animation lasts 16 updates. A gold playfield color distinguishes the
-ring from the cyan beam; the arena background stays black. The outline replaces
+phase. The animation lasts 16 updates. Both physical ring lines keep the same
+gold color; the arena background stays black. The outline replaces
 the previous size, so no filled disk or trail accumulates.
+
+The beam core cycles through eight colors at one palette step per four frames,
+with luminance alternating between 14 and 10. Its darker glow uses luminance 6
+and a palette offset by row and animation phase. Both palettes are in
+`config/tuning.json`. Color strips occupy unused tails of two sprite pages;
+the largest glow lookup is offset 164+7+79=250, so reads remain page-safe.
+This preserves the ROM size and previous bank headroom. The appearance is drawn
+by the ROM; it does not require Stella phosphor blending.
 
 This is display-only scheduling: `BeamEnabled` and the beam sound remain active
 while a direction is held, even on its omitted frames. `BombEvent` pulses once
@@ -102,7 +122,7 @@ appear every other frame. No extra flicker phase is added for enemies.
 | Stack | Four bytes observed; 16 reserved |
 | Guard | Eight bytes at `$E8–$EF`, intact in tested runs |
 | Update cost | 190–576 cycles from `GameFrame` to `LogicDone` |
-| Render preparation done | 698–850 cycles from VSYNC line start |
+| Render preparation done | 774–850 cycles from VSYNC line start |
 
 The cost samples cover 374 frames: all 16 direction combinations with button up/
 down in all eleven layouts, plus SELECT edges. They include fixture loads but
@@ -122,12 +142,16 @@ this same whole-frame slot would exceed the accepted omission limit.
 `make stella-check` records both phases of same-height, center-convergence, and
 separated-height pairs. Its SELECT fixture injection temporarily drives only the
 RIOT port-B SELECT bit; the ROM still performs its normal switch sampling and
-edge detection. The command transcript documents that setup. Debugger `frame`
+edge detection. The command transcript documents that setup. Short log chunks
+avoid Stella 6's corrupt session export after its prompt history wraps; they
+are combined into `session.txt`. Debugger `frame`
 stops at VSYNC, so animation captures wait for a complete newly drawn frame.
 
 The Stella snapshots cover both phases of all eight rays, neutral, every bomb
 animation frame, and target placement during the largest ring. Visual inspection
-confirmed the expanding outline and both target phases. Real hardware
+confirmed the plasma shading, expanding outline, and both target phases. Pixel
+comparisons against the preceding build found identical bomb-stage captures.
+Real hardware
 flicker and audio remain untested. Advancing
 to three enemies requires vertical sprite reuse and new timing/visibility
 measurements, as described in [the implementation specification](IMPLEMENTATION_SPEC.md).

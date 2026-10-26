@@ -12,17 +12,19 @@ Build a small, single-screen survival game: a stationary turret fires along eigh
 
 The scope below targets a stock Atari 2600 and one standard joystick. The user has accepted this reduced feature set as the test baseline, with increasing enemy counts in later levels as an explicit goal. Two active enemies is the starting cap, not the intended permanent limit. Exact level thresholds and the final enemy cap remain to be tested.
 
-The accepted effects experiment adds a flashing beam and a four-step expanding
+The accepted effects experiment adds a pulsing plasma beam and a four-step expanding
 bomb outline. They alternate display frames while the bomb animates, preserving
 continuous beam state and the existing enemy schedule. The ring is cosmetic;
 the planned damage remains immediate and limited to a fixed radius.
+Outside bombs the beam stays visible, with a cycling bright core and darker
+rainbow shading in place of the original hard on/off blink.
 
 ## What to cut, and what replaces it
 
 | Cut from the proposed port | Keep instead | Why make this cut? |
 | --- | --- | --- |
 | Smooth 360° mouse aiming and mouse-controlled beam length | Eight directions, one fixed reach clipped to the arena | Matches the joystick and makes aiming and hit tests predictable. |
-| Thin, smoothly drawn beam and continuously rotating player polygon | A chunky flashing ray and a small stationary turret symbol | Preserves readable aim while simplifying drawing. Diagonals look stepped. |
+| Thin, smoothly drawn beam and continuously rotating player polygon | A coarse ray with a bright core, rainbow shading, and a small stationary turret symbol | Preserves readable aim while simplifying drawing. Diagonals look stepped; the bright portion uses one scanline, but horizontal resolution remains four color clocks. |
 | Free-moving enemies anywhere in the arena | Eight straight approach lanes aligned with the beam | No targets between firing directions; one shared movement rule and simple hit tests. Free-moving enemies are not implemented in the source yet. |
 | A large simultaneous swarm from the outset | **Two active enemies for the prototype and opening levels**, with higher caps in later levels after validation | Reduces initial display conflicts and flicker while leaving a clear path to denser encounters. Two is a starting choice, not an Atari hardware maximum. |
 | Sweeping filled sectors, lingering trails, transparency, and accumulated effects | Only the currently active beam | Removes overlapping graphics and effect history without sacrificing directional firing. |
@@ -80,7 +82,7 @@ A bomb's damage check can be small: compare each enemy's distance from the cente
 
 ## The beam is the one rendering feature to protect
 
-The renderer uses an opaque, coarse playfield ray selected from eight patterns on alternate frames. During a bomb, the intervening frames draw its expanding outline. Draw the turret and enemies with player graphics. Keep the HUD in a separate strip and the arena background black.
+The renderer uses an opaque, coarse playfield ray selected from eight patterns, shaded as a pulsing plasma beam. During a bomb, alternate frames draw its expanding outline. Draw the turret and enemies with player graphics. Keep the HUD in a separate strip and the arena background black.
 
 The playfield is coarse and normally repeats or mirrors its two halves; independent halves need timed updates. A missile alone cannot be stretched into an arbitrary full-width horizontal ray. See the playfield and missile sections of the [Atari reference](https://alienbill.com/2600/101/docs/stella.html).
 
@@ -106,7 +108,7 @@ The port would reuse the attack concept and visual identity. Enemy behavior, hit
 
 ## What to prove before expanding scope
 
-1. **Core display:** centered turret, readable flashing beams in all eight directions, one enemy, and a button-triggered expanding bomb outline. Stable timing and responsive controls are the acceptance criteria.
+1. **Core display:** centered turret, readable plasma beams in all eight directions, one enemy, and a button-triggered expanding bomb outline. Stable timing and responsive controls are the acceptance criteria.
 2. **Small combat loop:** two active enemies, both enemy types, fixed bomb radius, cooldown, health, score, and restart. Test same-height enemies, diagonal changes, and simultaneous beam/bomb use.
 3. **Readability and fairness:** verify beam-hit alignment, the bomb-range cue, and bomb-only spawn timing. Check frame timing and RAM/stack use in Stella, then test a real console and joystick.
 4. **Later-level density:** stress-test three enemies, then four, including shared-height and center-convergence cases during beam/bomb use. Record the highest acceptable count, then use validated caps in the level table and playtest each transition.
