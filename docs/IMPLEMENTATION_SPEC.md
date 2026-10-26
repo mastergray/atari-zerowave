@@ -21,7 +21,7 @@ continue to define the full game target.
 | Cartridge | 8 KiB F8 ROM, two 4 KiB banks; no cartridge RAM or coprocessor |
 | Working RAM | 128 bytes including stack, with the allocation below |
 | Simulation | One fixed game update per video frame |
-| Display | Custom kernel; coarse playfield beam, player graphics for turret/enemies |
+| Display | Custom ball/playfield beam kernels, player graphics for turret/enemies |
 | Development | Make, Python 3 standard-library generation/checks, Stella debugger |
 | Later work | PAL timing/palette conversion, more than four enemy slots, richer effects |
 
@@ -77,7 +77,7 @@ Each active enemy subtracts the current level's speed from its fixed-point dista
 
 Generate movement tables offline from lane direction and radius. Start with horizontal extent 44 color clocks and vertical extent 35 logical rows at radius 63, giving room for the sprites within the arena. Use sine/cosine only in the generator, share cardinal/diagonal magnitudes and sign information, and adjust these extents if television aspect-ratio testing requires it. Cache sprite top-left positions in each slot; use 8-color-clock-wide, four-logical-row-high enemy silhouettes initially.
 
-Use the same coordinate transform for beam graphics and enemy positions. The generator must verify that every legal enemy center lies on its lane's rasterized beam and that all sprite bounds fit. A coarse ray may be widened around rounding boundaries to make hits visually credible. Normalize radial distance across lanes so bomb reach does not change merely because the enemy approaches diagonally.
+Use the same coordinate transform for beam graphics and enemy positions. The generator must verify that the beam crosses every legal enemy silhouette and that all sprite bounds fit. The horizontal playfield ray covers the enemy center; a thin ball ray may differ from the rounded center by at most one color clock. Normalize radial distance across lanes so bomb reach does not change merely because the enemy approaches diagonally.
 
 For radius comparisons, explicitly compare both bytes: `24.00` is inside the bomb, `24.01` is outside. Rendering may use the integer byte; the bomb-range cue uses the exact combat comparison.
 
@@ -181,15 +181,17 @@ After level 8, reuse the final difficulty row. Track a displayed level number up
 
 ## Beam and enemy rendering
 
-Share the playfield between the beam and bomb outline, with player 0 for the turret and player 1 for enemies. Leave missiles and ball disabled initially. Keep the background black; use cycling rainbow colors for beam frames and fixed gold for ring frames. HUD graphics occupy a separate vertical region.
+Use the ball for vertical/diagonal beams and the playfield for horizontal beams and bomb outlines, with player 0 for the turret and player 1 for enemies. Leave missiles disabled. Keep the background black; use cycling rainbow colors for beam frames and fixed gold for ring frames. HUD graphics occupy a separate vertical region.
 
-The beam uses eight opaque raster patterns, one selected by direction. Both halves of the playfield must be independently controlled so a right shot cannot create a left copy. Repeat each logical row across two scanlines in the same color. While held, cycle the entire beam through eight hues, one every four frames, at luminance 14. On release, freeze the last hue and direction and count brightness from 15 through 1, once per update, then hide the pattern. This follows Laser Blast's decay cadence; [kernel notes](KERNEL_TIMING.md#effect-scheduling) record the reference and TIA luminance behavior. Re-aiming cancels the fade immediately. Set the color before the arena and keep it fixed across all rows; there is no spatial gradient or separate glow layer. Horizontal resolution remains four color clocks per playfield cell.
+The beam uses eight fixed rays, one selected by direction. Vertical and diagonal rays are one color clock wide; diagonal ball motion advances at most one color clock each physical scanline. Horizontal rays retain their two-scanline thickness and independently controlled playfield halves so a right shot cannot create a left copy. Both kernels repeat the turret/enemy graphics across two scanlines per logical row. While held, cycle the entire beam through eight hues, one every four frames, at luminance 14. On release, freeze the last hue and direction and count brightness from 15 through 1, once per update, then hide the pattern. This follows Laser Blast's decay cadence; [kernel notes](KERNEL_TIMING.md#effect-scheduling) record the reference and TIA luminance behavior. Re-aiming cancels the fade immediately. Set the color before the arena and keep it fixed across all rows; there is no spatial gradient or separate glow layer.
 
 Keep the turret visible every frame. Draw the beam on both frame phases normally. During a bomb, odd frames draw the ring and even frames draw the beam, giving each effect about 30 appearances per second without adding omissions to enemy graphics. Ring colors stay gold on both physical scanlines. Input, damage, and beam audio remain independent of this display phase. Use no transparency or trails.
 
 Generate four ring sizes in the same radial geometry as the lanes, initially radii 6, 12, 18, and 24. Each lasts four updates, ensuring two visible ring frames regardless of the firing phase. The final outline marks the bomb's maximum radius. Treat the 16-update animation as feedback for immediate damage, not a persisting blast. Validate both beam/ring phases, neutral-stick bombs, every stage, and target visibility during the largest ring.
 
-The generator encodes six playfield planes per pattern. The current geometry keeps left PF0 and right PF2 at zero, allowing four timed stream loads. The eight directions, neutral, and four rings share 22 unique 80-byte streams, packed three per page. Keep indexed streams within pages where the kernel assumes fixed load timing, or explicitly account for page crossings. Expanding the geometry into the constant-zero outer planes requires revising the kernel.
+The generator encodes six playfield planes per pattern; ball-ray patterns have blank playfield data. The current geometry keeps left PF0 and right PF2 at zero, allowing four timed stream loads in the playfield kernel. Horizontal rays, neutral, and four rings share 14 unique 80-byte streams. Two additional packed motion streams serve all four diagonals; vertical rays reuse the zero stream. Pack three streams per page. Keep indexed streams within pages where the kernel assumes fixed load timing, or explicitly account for page crossings. Expanding the geometry into the constant-zero outer planes requires revising the playfield kernel.
+
+The ball kernel strobes HMOVE at cycle 3 of every arena scanline. Clear all object motion registers in the separator so the turret and enemy stay fixed; write the ball's next motion at least 24 cycles after HMOVE. Store both physical lines' motion nibbles in one byte per logical row. Enable the ball only between the ray's generated row bounds, and disable it before the next HUD. The ball shares the playfield's color register, preserving the beam palette without changing sprite colors.
 
 Each scanline still has its own write deadlines in a two-line kernel. Before accepting it, produce an instruction-cycle schedule covering both playfield halves, both player graphics, loop control, and horizontal positioning. No particular register schedule is considered proven by this specification.
 
@@ -231,7 +233,7 @@ The initial map uses the full available address range, with explicit reserve and
 | `$F0–$FF` | 16 | Stack reservation |
 | Total | 128 | Includes stack and margin |
 
-The 24 renderer bytes currently hold four two-byte playfield pointers, a two-byte sprite pointer, selected slot, HUD color, arena color, display-pattern ID, four beam visual bytes (fade timer, frozen hue, draw direction, draw color), and six reserved bytes. Later sprite reuse must fit or explicitly revise this allocation. Scratch can be reused only across nonoverlapping lifetimes; record clobbered registers and scratch in each routine's header. ROM switching does not preserve a second copy of RAM.
+The 24 renderer bytes currently hold four two-byte playfield pointers, a two-byte sprite pointer, selected slot, HUD color, arena color, display-pattern ID, four beam visual bytes (fade timer, frozen hue, draw direction, draw color), a two-byte ball-motion pointer, two ball row bounds, a kernel selector, and one reserved byte. Later sprite reuse must fit or explicitly revise this allocation. Scratch can be reused only across nonoverlapping lifetimes; record clobbered registers and scratch in each routine's header. ROM switching does not preserve a second copy of RAM.
 
 Initialize the stack at `$FF` and keep peak stack consumption within 16 bytes, including nested subroutines and any explicit pushes. Verify the high-water mark in the busiest frame. Increasing storage beyond four slots requires a revised map; it is not enabled by changing only a level row.
 

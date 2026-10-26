@@ -34,7 +34,11 @@ SeparatorLoop:
     sta COLUPF
     lda #COLOR_BACKGROUND
     sta COLUBK
+    sta HMCLR             ; well after blanking HMOVE; players stay stationary
+    sta ENABL
     ldy #ARENA_ROWS-1      ; reverse indexing saves two loop cycles
+    lda BallKernel
+    bne ThinBeamLoop
 
 ; Four varying PF streams serve both rays and rings: neither reaches columns
 ; 0..3 or 32..39. Sprite writes precede their earliest possible pixels.
@@ -65,7 +69,46 @@ ArenaLoop:
     ARENA_SCANLINE
     dey                   ; 55
     bpl ArenaLoop         ; 58; next WSYNC completes at 61
+ArenaDone:
+    lda #0
+    sta ENABL
     lda #2
     sta WSYNC             ; first overscan line
     sta VBLANK
     jmp LogicEntry
+
+; One-clock ball beam. The playfield stays clear; P0/P1 still draw every line.
+; HMOVE at cycle 3, then HMBL no earlier than cycle 34 (>24 cycles later).
+; Two packed motion nibbles advance the ball on individual physical lines.
+ThinBeamLoop:
+    sta WSYNC
+    sta HMOVE             ; 3
+    lda #0
+    cpy BeamMinY
+    bcc ThinBeamEnableReady
+    cpy BeamMaxY
+    bcs ThinBeamEnableReady
+    lda #2
+ThinBeamEnableReady:
+    sta ENABL             ; <=20, before the leftmost beam pixel
+    lda (EnemySprite),y
+    sta GRP1              ; <=28, before the leftmost enemy
+    lda TurretRows,y
+    sta GRP0              ; <=35
+    lda (BeamMotion),y
+    sta HMBL              ; high nibble moves the second physical line
+    sta WSYNC
+    sta HMOVE             ; 3
+    lda (EnemySprite),y
+    sta GRP1              ; 11
+    lda TurretRows,y
+    sta GRP0              ; 18
+    lda (BeamMotion),y
+    asl
+    asl
+    asl
+    asl
+    sta HMBL              ; 34; low nibble moves the next row's first line
+    dey
+    bpl ThinBeamLoop
+    jmp ArenaDone

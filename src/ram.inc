@@ -36,7 +36,11 @@ BeamFadeTimer   ds 1
 BeamFadeHue     ds 1
 BeamDrawDirection ds 1
 BeamDrawColor   ds 1
-RenderReserved  ds 6
+BeamMotion      ds 2
+BeamMinY        ds 1
+BeamMaxY        ds 1
+BallKernel      ds 1
+RenderReserved  ds 1
 CurrentButtons  ds 1
 PressedButtons  ds 1
 Temp            ds 1

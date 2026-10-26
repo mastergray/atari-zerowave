@@ -32,8 +32,9 @@ models the behavior in [Stella's RIOT implementation](https://github.com/stella-
 ## Arena scanline schedule
 
 The following are CPU cycles at instruction completion, counted from WSYNC
-release. Both physical scanlines of each logical row use the same graphics-write
-schedule and the same color.
+release, for the playfield kernel (left/right rays, rings, and blank frames).
+Both physical scanlines of each logical row use the same graphics-write schedule
+and the same color.
 The playfield is in normal, unreflected mode, with independent writes for its
 left and right halves.
 
@@ -59,14 +60,16 @@ positions. Indexed streams never cross a page during the kernel.
 COLUPF is set during the separator and remains fixed throughout the entire arena.
 The whole beam changes color together between frames, with no scanline gradient
 or separate glow layer. Tests reject any color write during the arena and check
-the upright player graphics on all 160 lines. The playfield's minimum horizontal
-width remains four color clocks; each logical row occupies two physical lines.
+the upright player graphics on all 160 lines. Horizontal rays remain two
+physical lines tall. Vertical and diagonal rays use the separate ball kernel
+below to reach one-color-clock width.
 
 Generated rays occupy playfield columns 9 through 31; the rings fit inside that
 span. Left PF0 and right PF2
 are therefore constant zero, allowing four varying streams instead of six.
-Deduplication reduces the eight directions, neutral, and four rings to 22 shared
-80-byte streams (the beams alone need thirteen). Packing three streams per
+Deduplication reduces the horizontal directions, neutral, and four rings to 14
+shared 80-byte streams (the horizontal beams alone need five). Two additional
+motion streams serve all diagonal rays. Packing three streams per
 256-byte page saves alignment space without introducing page-crossing loads.
 If the arena geometry expands into those outer columns, the
 generator fails; changing the timed kernel is required.
@@ -77,6 +80,31 @@ in blanking, followed by HMOVE. `PositionPlayer` deliberately aligns its subtrac
 branch loop within one page and uses a five-cycle absolute indexed HMP store.
 Changing either changes horizontal placement; Stella inspection confirmed both
 players at the intended positions after correcting these details.
+
+### Thin-beam scanlines
+
+The ball draws N, NE, SE, S, SW, and NW at one color clock wide. Each diagonal
+moves by zero or one color clock per physical scanline, keeping the ray connected.
+Its initial X and visible row bounds come from the same lane geometry as enemy
+positions. Opposite diagonals share slopes; each 80-byte motion stream packs
+the moves for both physical scanlines into its high and low nibbles.
+
+| Register | First line completion cycle | Second line completion cycle |
+| --- | ---: | ---: |
+| HMOVE | 3 | 3 |
+| ENABL | 14, 19, or 20 according to row bounds | Held from first line |
+| GRP1 | 22, 27, or 28 | 11 |
+| GRP0 | 29, 34, or 35 | 18 |
+| HMBL | 37, 42, or 43 | 34 |
+
+The second line reaches WSYNC by cycle 43, including the loop branch's page
+crossing. The final line disables ENABL before entering overscan. The playfield
+stays blank throughout this kernel. HMCLR in the separator stops player motion
+before the repeated HMOVE strobes. Ball-motion writes occur more than 24 cycles
+after HMOVE, following the timing requirement in Atari's
+[Stella Programmer's Guide](https://www.atariage.com/2600/programming/2600_101/docs/stella.html).
+Early HMOVE also blanks the leftmost eight color clocks; these lie in the empty
+black arena margin. Both sprites still update every physical line.
 
 ## Effect scheduling
 
@@ -110,13 +138,13 @@ This cadence comes from Dennis Debro's
 the overscan update decrements its low nibble once per frame, and the kernel
 disables it at zero. Our adaptation starts that decay on joystick release and
 retains the selected rainbow hue. The original uses a missile graphic; our
-eight-way playfield geometry retains its existing coarser width.
+eight-way implementation uses the ball and horizontal playfield rays.
 
 Four renderer bytes store `BeamFadeTimer`, `BeamFadeHue`, `BeamDrawDirection`,
 and `BeamDrawColor`. `Direction` and `BeamEnabled` still become neutral/zero
 immediately on release, and the beam sound stops. Future combat must use those
 input fields, never the cosmetic draw direction. The render bank consumes the
-prepared color and direction without changing the arena kernel.
+prepared color and direction for either arena kernel.
 
 This is display-only scheduling: `BeamEnabled` and the beam sound remain active
 while a direction is held, even on its omitted frames. `BombEvent` pulses once
@@ -124,7 +152,7 @@ on acceptance for future immediate damage; it is not repeated for ring stages.
 The bomb sound decays over six updates independently of the longer animation.
 Cooldown remains 60 updates. No damage rules are implemented in this prototype.
 
-The ring uses the existing kernel and player graphics are written on both
+The ring uses the playfield kernel and player graphics are written on both
 phases. Enemy draw ages do not depend on effect phase, so two enemies still
 appear every other frame. No extra flicker phase is added for enemies.
 
@@ -133,18 +161,18 @@ appear every other frame. No extra flicker phase is added for enemies.
 | Resource | Current measurement |
 | --- | --- |
 | Bank 0 end / room before trampoline | `$F1DA` / 3,494 bytes |
-| Bank 1 end / room before trampoline | `$FE78` / 264 bytes |
+| Bank 1 end / room before trampoline | `$FC78` / 776 bytes |
 | Cartridge | 8,192 bytes, identical bank tails and vectors |
 | RAM | Fixed 128-byte map, including reserves and stack |
 | Stack | Four bytes observed; 16 reserved |
 | Guard | Eight bytes at `$E8–$EF`, intact in tested runs |
 | Update cost | 224–616 cycles from `GameFrame` to `LogicDone` |
-| Render preparation done | 698–850 cycles from VSYNC line start |
+| Render preparation done | 850–926 cycles from VSYNC line start |
 
 The cost samples cover 374 frames: all 16 direction combinations with button up/
 down in all eleven layouts, plus SELECT edges. They include fixture loads but
 exclude future movement, combat, score, and spawning. Re-measure after adding
-those paths. The renderer bank's 264-byte remaining space requires budgeting
+those paths. The renderer bank's 776-byte remaining space requires budgeting
 coordinate and future HUD tables; raw per-lane X/Y arrays will not fit unchanged.
 Future coordinate data may need compression or relocation to the logic bank.
 
@@ -166,11 +194,13 @@ stops at VSYNC, so animation captures wait for a complete newly drawn frame.
 
 The 56 Stella snapshots cover both phases of all eight rays, neutral, every bomb
 animation frame, target placement during the largest ring, and the complete
-release fade. Pixel comparisons found all 39 pre-existing scenarios identical to
-the solid-color build. The release captures keep the same 464 beam pixels and
-one uniform hue while brightness decreases, then remove the beam. Cartridge
-tests additionally exercise release in all eight directions and hues, re-aiming,
-reset, and fading during bombs with two enemies.
+release fade. Pixel comparisons found left/right rays, neutral, and all eleven
+ring captures identical to the previous release-fade build. Both phases of all
+six thin directions match their generated paths: one color clock per scanline,
+with sprite pixels preserved. The NW ray occupies 92 screenshot pixels, down
+from 464, and retains one uniform hue during its fade. Cartridge tests also
+check ball-motion timing, clearing player motion, release in all eight directions
+and hues, re-aiming, reset, and fading during bombs with two enemies.
 Real hardware
 flicker and audio remain untested. Advancing
 to three enemies requires vertical sprite reuse and new timing/visibility

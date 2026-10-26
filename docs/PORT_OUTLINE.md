@@ -26,7 +26,7 @@ Re-aiming replaces that afterglow immediately. There are no stacked gradient lin
 | Cut from the proposed port | Keep instead | Why make this cut? |
 | --- | --- | --- |
 | Smooth 360° mouse aiming and mouse-controlled beam length | Eight directions, one fixed reach clipped to the arena | Matches the joystick and makes aiming and hit tests predictable. |
-| Thin, smoothly drawn beam and continuously rotating player polygon | A solid color-cycling ray and a small stationary turret symbol | Preserves readable aim while simplifying drawing. Diagonals look stepped; horizontal resolution remains four color clocks, with each logical row drawn twice. |
+| Smoothly rotating beam and player polygon | Eight fixed thin rays and a small stationary turret symbol | Vertical/diagonal rays use the one-color-clock ball; horizontal rays retain their two-scanline playfield shape. Diagonals still follow the pixel grid. |
 | Free-moving enemies anywhere in the arena | Eight straight approach lanes aligned with the beam | No targets between firing directions; one shared movement rule and simple hit tests. Free-moving enemies are not implemented in the source yet. |
 | A large simultaneous swarm from the outset | **Two active enemies for the prototype and opening levels**, with higher caps in later levels after validation | Reduces initial display conflicts and flicker while leaving a clear path to denser encounters. Two is a starting choice, not an Atari hardware maximum. |
 | Sweeping filled sectors, lingering trails, transparency, and accumulated effects | One beam, with a short cosmetic fade on release | Removes overlapping graphics and direction history without sacrificing directional firing. |
@@ -84,13 +84,13 @@ A bomb's damage check can be small: compare each enemy's distance from the cente
 
 ## The beam is the one rendering feature to protect
 
-The renderer uses an opaque, coarse playfield ray selected from eight patterns, with one uniform color that changes over time. During a bomb, alternate frames draw its expanding outline. Draw the turret and enemies with player graphics. Keep the HUD in a separate strip and the arena background black.
+The renderer uses the one-color-clock ball for vertical and diagonal rays, repositioning it each scanline for diagonals. Horizontal rays use the playfield at two scanlines tall. Each ray has one uniform color that changes over time. During a bomb, alternate frames draw its expanding playfield outline. Draw the turret and enemies with player graphics. Keep the HUD in a separate strip and the arena background black.
 
 The playfield is coarse and normally repeats or mirrors its two halves; independent halves need timed updates. A missile alone cannot be stretched into an arbitrary full-width horizontal ray. See the playfield and missile sections of the [Atari reference](https://alienbill.com/2600/101/docs/stella.html).
 
 For this game, the proposed ray therefore needs a custom display kernel, meaning carefully timed code that draws each screen line. It must produce only the chosen direction, with no unintended mirrored shot. Store compact patterns in ROM and keep changing state small; do not allocate a screen-sized RAM buffer.
 
-A stationary center, eight fixed rays, no trails, and four precomputed ring sizes make the kernel tractable. Frame alternation lets both effects use the same timed playfield writes; the prototype's timing is recorded in the kernel notes. Television readability still needs testing.
+A stationary center, eight fixed rays, no trails, and four precomputed ring sizes make the kernel tractable. Frame alternation selects the appropriate ball or playfield kernel; both retain the same enemy schedule. The prototype's timing is recorded in the kernel notes. Television readability still needs testing.
 
 Do not replace the beam with ordinary traveling bullets as an automatic optimization: that changes one of the requested defining interactions. If a continuous ray proves troublesome, try coarser graphics and simpler enemy scheduling first.
 

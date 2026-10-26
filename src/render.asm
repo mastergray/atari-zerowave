@@ -32,7 +32,7 @@ PrepareDone:
     sta VBLANK
     jmp HudLoop
 
-; Prepare four playfield pointers and one enemy sprite pointer; A/X/Y clobbered.
+; Prepare playfield, ball-motion and enemy pointers; A/X/Y clobbered.
 ; Display alternation never changes BeamEnabled or the one-update BombEvent.
 ; Age selection is independent of slot parity, so a freed slot cannot starve another.
 PrepareRender:
@@ -59,6 +59,16 @@ PrepareRender:
     sta ArenaColor
 .patternReady:
     sty DisplayPattern
+    lda BallKernelByPattern,y
+    sta BallKernel
+    lda BallMinY,y
+    sta BeamMinY
+    lda BallMaxY,y
+    sta BeamMaxY
+    lda BallMotionLo,y
+    sta BeamMotion
+    lda BallMotionHi,y
+    sta BeamMotion+1
     lda PatternLeft1Lo,y
     sta BeamLeft1
     lda PatternLeft1Hi,y
@@ -144,6 +154,10 @@ PrepareRender:
     lda #76
     ldx #0
     jsr PositionPlayer
+    ldy DisplayPattern
+    lda BallInitialX,y
+    ldx #4               ; same positioning registers, indexed to HMBL/RESBL
+    jsr PositionPlayer
     sta WSYNC
     sta HMOVE
     lda #COLOR_TURRET
@@ -151,7 +165,7 @@ PrepareRender:
     rts
 
 ; Standard coarse/fine positioning during blanking.
-; A = left edge (0..159), X = player (0 or 1); clobbers A only, <= 2 lines.
+; A = left edge (0..159), X = object (player 0/1 or ball 4); A clobbered, <= 2 lines.
     align 16
 PositionPlayer:
     SUBROUTINE

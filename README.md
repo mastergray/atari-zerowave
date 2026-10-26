@@ -55,9 +55,10 @@ holds its hue and dims over 15 frames (about a quarter-second). This uses
 Re-aiming immediately replaces the afterglow with a bright beam in the new
 direction. RESET with fire held does not trigger a bomb.
 
-Each logical beam row is drawn twice in the same color; geometry and range are unchanged.
-The playfield still has a four-color-clock minimum horizontal width, so narrower
-vertical beams would need a different graphics technique.
+Vertical and diagonal beams use the TIA ball at one color clock wide. Diagonals
+advance at most one color clock per physical scanline, giving a connected thin
+line. Left/right beams retain their existing two-scanline thickness and reach.
+Both techniques use the same color cycle and release fade.
 
 Try releasing each direction, re-aiming during the fade, and bombing while the
 beam fades. Check
@@ -80,7 +81,7 @@ appearances further.
 button edges and exact cooldown boundaries, both startup banks, stack/guard
 integrity, fixed frame lengths, kernel write deadlines, and display fairness.
 Tests check every animation stage for presses on either frame phase, actual
-playfield data, uniform color across the entire beam, sprite rows, every palette phase,
+playfield data, ball motion/enable timing, uniform beam color, sprite rows, every palette phase,
 continuous beam state, and the separate short sound envelope. Release tests cover
 all eight directions and hues, the exact fade countdown, immediate sound cutoff,
 re-aiming, reset, and simultaneous bombing with two enemies.

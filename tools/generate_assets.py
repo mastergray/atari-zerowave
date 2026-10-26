@@ -43,12 +43,40 @@ def encode_row(cells):
 
 def beam_rows(lane, tuning):
     rows = [set() for _ in range(tuning["arena_rows"])]
-    if lane != 8:
+    if lane in (2, 6):
         # Sample quarter radial units to connect all rounded integer positions.
         for quarter in range(tuning["contact_radius"] * 4, tuning["spawn_radius"] * 4 + 1):
             x, y = center(lane, quarter / 4, tuning)
             rows[y].add(x // 4)
     return [encode_row(row) for row in rows]
+
+
+def ball_beam(lane, tuning):
+    """One color-clock ray, moving at most one clock per physical scanline.
+
+    Both motion nibbles for a two-line row share a byte. The high nibble
+    positions its second line; the low nibble positions the following row.
+    North/south share a stationary stream; opposite diagonals share slopes.
+    """
+    count = tuning["arena_rows"]
+    if lane not in (0, 1, 3, 4, 5, 7):
+        return dict(enabled=0, initial_x=80, min_y=80, max_y=80,
+                    motion=[0] * count, pixels=[None] * (count * 2))
+    slope = {0: 0, 1: -1, 3: 1, 4: 0, 5: -1, 7: 1}[lane]
+    slope *= tuning["extent_x"] / tuning["extent_y"]
+    positions = [round(tuning["center_x"] + slope * (line / 2 - tuning["center_y"]))
+                 for line in range(count * 2 + 1)]
+    first, last = sorted(center(lane, r, tuning)[1]
+                         for r in (tuning["contact_radius"], tuning["spawn_radius"]))
+    steps = [a - b for a, b in zip(positions, positions[1:])]
+    assert all(abs(step) <= 1 for step in steps)
+    assert all(0 <= x < 160 for x in positions)
+    return dict(enabled=1, initial_x=positions[0], min_y=count - 1 - last,
+                max_y=count - first,
+                motion=[((steps[i] & 15) << 4) | (steps[i + 1] & 15)
+                        for i in range(0, count * 2, 2)],
+                pixels=[x if first <= line // 2 <= last else None
+                        for line, x in enumerate(positions[:-1])])
 
 
 def bomb_radii(tuning):
@@ -122,6 +150,7 @@ def generate():
     patterns = [beam_rows(lane, tuning) for lane in range(9)]
     beam_streams = len({tuple(row[plane] for row in rows) for rows in patterns for plane in (1, 2, 3, 4)})
     patterns.extend(ring_rows(radius, tuning) for radius in radii)
+    ball_patterns = [ball_beam(lane, tuning) for lane in range(len(patterns))]
     streams = {}
     references = []
     # Rays are confined to columns 9..31: left PF0 and right PF2 stay zero.
@@ -134,6 +163,13 @@ def generate():
                 streams[values] = f"PlayfieldStream{len(streams)}"
             labels.append(streams[values])
         references.append(labels)
+    playfield_streams = len(streams)
+    motion_labels = []
+    for ball in ball_patterns:
+        values = tuple(ball["motion"])
+        if values not in streams:
+            streams[values] = f"BeamMotionStream{len(streams)}"
+        motion_labels.append(streams[values])
     render = ["; Generated display data. All indexed loads are page-safe.\n"]
     # Timer counts down. Zero is neutral; 16..13 select the smallest ring, etc.
     render.append(byte_lines("BombPatternByTimer", [8] + [
@@ -142,6 +178,11 @@ def generate():
     for plane, name in enumerate(("Left1", "Left2", "Right0", "Right1")):
         for operator, suffix in (("<", "Lo"), (">", "Hi")):
             render.append(f"Pattern{name}{suffix}:\n    .byte " + ",".join(operator + labels[plane] for labels in references) + "\n")
+    for name, key in (("BallKernelByPattern", "enabled"), ("BallInitialX", "initial_x"),
+                      ("BallMinY", "min_y"), ("BallMaxY", "max_y")):
+        render.append(byte_lines(name, [ball[key] for ball in ball_patterns]))
+    for operator, suffix in (("<", "Lo"), (">", "Hi")):
+        render.append(f"BallMotion{suffix}:\n    .byte " + ",".join(operator + label for label in motion_labels) + "\n")
     # Three 80-byte streams fit in a 256-byte page, preserving five-cycle
     # indirect loads while reclaiming the old 128-byte alignment gaps.
     for index, (values, label) in enumerate(streams.items()):
@@ -176,13 +217,14 @@ def generate():
     # Beam palette belongs to bank 0: game logic freezes its hue on release.
     (OUT / "fixtures.inc").write_text(byte_lines("BeamColors", tuning["beam_colors"]) +
                                       "".join(byte_lines(name, values) for name, values in fixture_data.items()))
-    manifest = {"unique_beam_streams": beam_streams, "unique_playfield_streams": len(streams),
+    manifest = {"unique_beam_streams": beam_streams, "unique_playfield_streams": playfield_streams,
+                "unique_raster_streams": len(streams), "ball_patterns": ball_patterns,
                 "bomb_radii": radii, "bomb_animation_frames": animation_frames,
                 "patterns": patterns, "fixtures": fixtures, "tuning": tuning}
     (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     stamp = hashlib.sha256((json.dumps(tuning, sort_keys=True) + json.dumps(fixtures, sort_keys=True)).encode()).hexdigest()
     (OUT / "assets.stamp").write_text(stamp + "\n")
-    print(f"Generated {len(streams)} shared playfield streams, {len(radii)} rings, and {len(fixtures)} display fixtures.")
+    print(f"Generated {len(streams)} shared raster streams, {len(radii)} rings, and {len(fixtures)} display fixtures.")
 
 
 if __name__ == "__main__":

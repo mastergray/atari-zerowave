@@ -15,10 +15,17 @@ class AssetTests(unittest.TestCase):
         tuning = assets.load_config()
         for lane in range(8):
             rows = assets.beam_rows(lane, tuning)
+            ball = assets.ball_beam(lane, tuning)
             for radius in range(tuning["contact_radius"], tuning["spawn_radius"] + 1):
                 x, y = assets.center(lane, radius, tuning)
-                pixel = assets.encode_row({x // 4})
-                self.assertTrue(all((a & b) == b for a, b in zip(rows[y], pixel)), (lane, radius))
+                if ball["enabled"]:
+                    # Rounding a thin ray and a sprite's center separately can
+                    # differ by one clock, still inside the enemy silhouette.
+                    self.assertTrue(any(p is not None and abs(p - x) <= 1
+                                        for p in ball["pixels"][y * 2:y * 2 + 2]), (lane, radius))
+                else:
+                    pixel = assets.encode_row({x // 4})
+                    self.assertTrue(all((a & b) == b for a, b in zip(rows[y], pixel)), (lane, radius))
                 self.assertGreaterEqual(x - 4, 0)
                 self.assertLess(x + 3, 160)
                 self.assertGreaterEqual(y - 2, 0)
@@ -33,6 +40,15 @@ class AssetTests(unittest.TestCase):
             self.assertFalse(any(any(row[:3]) for row in assets.beam_rows(lane, tuning)))
         for lane in (5, 6, 7):
             self.assertFalse(any(any(row[3:]) for row in assets.beam_rows(lane, tuning)))
+        for lane in (0, 1, 3, 4, 5, 7):
+            pixels = [x for x in assets.ball_beam(lane, tuning)["pixels"] if x is not None]
+            if lane in (1, 3):
+                self.assertTrue(all(x > tuning["center_x"] for x in pixels))
+            elif lane in (5, 7):
+                self.assertTrue(all(x < tuning["center_x"] for x in pixels))
+            else:
+                self.assertEqual(set(pixels), {tuning["center_x"]})
+            self.assertTrue(all(abs(a - b) <= 1 for a, b in zip(pixels, pixels[1:])))
 
     def test_rings_expand_to_bomb_range_and_keep_a_hollow_center(self):
         tuning = assets.load_config()
@@ -168,8 +184,15 @@ class CartridgeTests(unittest.TestCase):
 
     def assert_rendered_pattern(self, machine, pattern):
         """Check actual TIA data and deadlines for all 160 lines of this frame."""
-        rows = json.loads((ROOT / "build/generated/manifest.json").read_text())["patterns"][pattern]
+        manifest = json.loads((ROOT / "build/generated/manifest.json").read_text())
+        rows = manifest["patterns"][pattern]
+        ball = manifest["ball_patterns"][pattern]
         origin = machine.bus.vsync_edges[-1] // 76 * 76
+        if ball["enabled"]:
+            self.assert_ball_pattern(machine, ball, origin)
+            return
+        self.assertEqual(machine.value("BallKernel"), 0)
+        self.assertEqual(machine.bus.tia[0x1f], 0)  # no residual ball on ring/neutral frames
         scanlines = [[] for _ in range(160)]
         for cycle, register, value in machine.bus.events:
             line = (cycle - origin) // 76 - 72
@@ -179,6 +202,41 @@ class CartridgeTests(unittest.TestCase):
         for line, writes in enumerate(scanlines):
             self.assertEqual(writes, [(cycle, register, value) for (cycle, register), value
                                      in zip(schedule, rows[line // 2])], (pattern, line))
+
+    def assert_ball_pattern(self, machine, ball, origin):
+        self.assertEqual(machine.value("BallKernel"), 1)
+        self.assertEqual(machine.bus.tia[0x0a] & 0x30, 0)  # one color-clock width
+        x, motion, enabled = ball["initial_x"], 0, 0
+        stationary = None
+        lines = [[] for _ in range(160)]
+        for cycle, register, value in machine.bus.events:
+            line = (cycle - origin) // 76 - 72
+            if 0 <= line < 160:
+                lines[line].append((cycle % 76, register, value))
+            elif 0 <= cycle - origin < 72 * 76 and register == 0x2b:
+                stationary = True  # separator clears all five motion registers
+            elif stationary and register in (0x20, 0x21, 0x24):
+                stationary = False
+        self.assertTrue(stationary, "Clear motion before strobing HMOVE throughout the arena")
+        for line, writes in enumerate(lines):
+            moves = 0
+            for cycle, register, value in writes:
+                self.assertNotIn(register, (0x0d, 0x0e, 0x0f, 0x20, 0x21))
+                if register == 0x2a:
+                    self.assertEqual(cycle, 3)
+                    delta = motion >> 4
+                    x -= delta if delta < 8 else delta - 16
+                    moves += 1
+                elif register == 0x24:
+                    self.assertGreaterEqual(cycle - 3, 24)
+                    motion = value
+                elif register == 0x1f:
+                    enabled = value & 2
+                    if line != 159:
+                        self.assertLessEqual(cycle, 21)
+            self.assertEqual(moves, 1)
+            self.assertEqual(x if enabled else None, ball["pixels"][line], line)
+        self.assertEqual(machine.bus.tia[0x1f], 0)
 
     def test_beam_has_no_blank_frames_or_disabled_input_or_sound(self):
         machine = self.machine()
@@ -281,6 +339,7 @@ class CartridgeTests(unittest.TestCase):
     def assert_arena_colors_and_sprites(self, machine):
         origin = machine.bus.vsync_edges[-1] // 76 * 76
         selected = machine.value("SelectedSlot")
+        ball_kernel = machine.value("BallKernel")
         top = machine.value("EnemyY", selected) if selected != 255 else 0
         kind = machine.value("EnemyFlags", selected) if selected != 255 else 0
         shape = [0x18, 0x3c, 0x7e, 0xff]
@@ -300,10 +359,18 @@ class CartridgeTests(unittest.TestCase):
             row = line // 2
             if register == 0x1b:
                 expected = [0x18, 0x3c, 0x7e, 0x3c][row - 38] if 38 <= row < 42 else 0
-                self.assertEqual((cycle % 76, value), (34, expected))
+                self.assertEqual(value, expected)
+                if ball_kernel:
+                    self.assertLessEqual(cycle % 76, 36)
+                else:
+                    self.assertEqual(cycle % 76, 34)
             else:
                 expected = shape[row - top] if selected != 255 and top <= row < top + 4 else 0
-                self.assertEqual((cycle % 76, value), (19, expected))
+                self.assertEqual(value, expected)
+                if ball_kernel:
+                    self.assertLessEqual(cycle % 76, 29)
+                else:
+                    self.assertEqual(cycle % 76, 19)
             writes.append(register)
         self.assertEqual(len(writes), 160 * 2)
 

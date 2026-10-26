@@ -28,7 +28,7 @@ def check():
     for bank in (0, 1):
         assert sym[f"Bank{bank}End"] <= 0xff80, "Bank overflows trampoline area"
     for name, address in sym.items():
-        if name.startswith("PlayfieldStream") or name == "TurretRows":
+        if name.startswith(("PlayfieldStream", "BeamMotionStream")) or name == "TurretRows":
             assert (address & 255) + 79 < 256, f"Page crossing: {name}"
         elif name.startswith("HudPlane"):
             assert (address & 255) + 23 < 256, f"Page crossing: {name}"
@@ -43,6 +43,8 @@ def check():
         "bank_headroom_before_tail": [0xff80 - sym[f"Bank{bank}End"] for bank in (0, 1)],
         "beam_streams": manifest["unique_beam_streams"],
         "playfield_streams": manifest["unique_playfield_streams"],
+        "raster_streams": manifest["unique_raster_streams"],
+        "vertical_diagonal_beam_width_clocks": 1,
         "beam_release_fade_updates": manifest["tuning"]["beam_fade_start"],
         "bomb_radii": manifest["bomb_radii"],
         "bomb_animation_frames": manifest["bomb_animation_frames"],
