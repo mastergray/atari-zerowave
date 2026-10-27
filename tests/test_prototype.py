@@ -346,6 +346,13 @@ class CartridgeTests(unittest.TestCase):
         if kind & 0x40:
             radius = machine.value("EnemyRadiusHi", selected) * 256 + machine.value("EnemyRadiusLo", selected)
             shape = [0x7e] * 4 if radius <= 24 * 256 else [0x7e, 0x42, 0x42, 0x7e]
+        if selected != 255 and machine.value("EnemyVisual", selected):
+            tuning = assets.load_config()
+            timer = machine.value("EnemyVisual", selected)
+            stage = (len(assets.BURSTS) * tuning["enemy_burst_stage_frames"] - timer) // tuning["enemy_burst_stage_frames"]
+            shape = assets.BURSTS[stage][1]
+            top -= 2
+            self.assertEqual(machine.bus.tia[0x07], tuning["enemy_burst_colors"][stage])
         writes = []
         color = None
         for cycle, register, value in machine.bus.events:
@@ -366,7 +373,7 @@ class CartridgeTests(unittest.TestCase):
                 else:
                     self.assertEqual(cycle % 76, 34)
             else:
-                expected = shape[row - top] if selected != 255 and top <= row < top + 4 else 0
+                expected = shape[row - top] if selected != 255 and top <= row < top + len(shape) else 0
                 self.assertEqual(value, expected)
                 if ball_kernel:
                     self.assertLessEqual(cycle % 76, 29)

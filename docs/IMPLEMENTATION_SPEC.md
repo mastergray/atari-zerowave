@@ -72,6 +72,7 @@ Game geometry uses an eight-way lane and a radial distance, not free Cartesian m
 | `BOMB_ANIMATION_FRAMES` | 16 updates | Four expanding ring sizes, four updates each |
 | `BOMB_SOUND_FRAMES` | 6 updates | Short noise envelope independent of animation |
 | `BEAM_FADE_START` | 15 | Initial release brightness; countdown through 1, then hide |
+| `ENEMY_BURST_FRAMES` | 18 updates | Three destruction stages, six updates each |
 | `LEVEL_BREAK` | 60 updates | Pause after a cleared level |
 | `SQUARE_SPAWN_GAP` | 72 updates | Minimum spacing between square spawns |
 
@@ -93,6 +94,13 @@ For radius comparisons, explicitly compare both bytes: `24.00` is inside the bom
 The beam pierces: all eligible triangles on its selected lane can be destroyed in the same update, including frames when the beam graphic is omitted. Gate damage on `BeamEnabled` and use `Direction`; the release afterglow never deals damage. A bomb checks every active slot once and destroys both types within radius. Its expanding outline is cosmetic and causes no subsequent damage; there is no moving damage front. A square outside the radius survives.
 
 Process bomb damage before beam damage, then process center contacts. Immediately mark destroyed enemies inactive; an enemy hit by both weapons earns score and quota credit exactly once. Attacks therefore win a same-update tie with reaching the turret. Contacted enemies are removed without score or quota credit. Each surviving contact costs one HP, saturating at zero; there is no invulnerability mechanic in the baseline.
+
+A scored kill starts an 18-update cosmetic burst at the last cached position.
+It cannot move, be hit again, or damage the turret. Three eight-row sprite shapes
+show a white flash, gold sparks, then dim red embers. Each stage lasts six updates.
+The existing `visual_state` byte holds the countdown; zero means no burst.
+Contacts do not produce this kill effect. Effects continue to expire during game
+over, and starting/resetting a run clears them.
 
 Use four decimal score digits stored as two packed-BCD bytes, saturating at 9999. BCD arithmetic must leave decimal mode clear before returning to other code. One scoring routine updates score and decrements the level's remaining kill quota, also saturating at zero. Multiple kills in one update all earn score even if the first exhausts the quota.
 
@@ -116,6 +124,10 @@ Entering `LEVEL_BREAK` sets its counter to 60; each following update decrements 
 ## Update order and video schedule
 
 One game update produces the state for the next visible frame:
+
+After sampling input, advance existing burst timers in all modes before handling
+reset or transitions. A burst created by later combat keeps its full lifetime
+for that first picture.
 
 1. Sample and normalize input; handle RESET or non-play mode transitions.
 2. Decrement nonzero cooldown, bomb-animation, spawn, and square-spacing timers. A timer set later in this update is not decremented again.
@@ -154,9 +166,14 @@ Store eight fields per slot as eight arrays of four bytes:
 | `screen_y` | Cached top logical row |
 | `draw_phase` | Selected display phase/scheduling assignment |
 | `draw_age` | Consecutive visible frames omitted, for scheduler checks |
-| `visual_state` | Sprite variant, including square bomb-range cue |
+| `visual_state` | Remaining destruction-burst updates; square fill is derived from radius |
 
 Attempt a spawn only if there is a free slot, active count is below cap, quota remains, and the spawn timer is zero. Choose a lane and type using a one-byte deterministic LFSR: shift right, XOR with `$B8` when the old low bit was one; seed `$A5` on reset. A host check verifies its nonzero cycle. Determinism enables replayable tests.
+
+A slot with a nonzero burst timer is reserved even though its active flag is clear.
+The total of live enemies and bursts must remain below the validated display cap
+before spawning. This may defer a due spawn for up to the burst's 18 updates;
+movement, attacks, cooldowns, and the surviving enemies continue normally.
 
 Do not place two enemies in the same lane in the baseline. For each attempt, choose a starting lane and examine at most eight lanes cyclically. Reject occupied lanes and arrangements forbidden by the validated renderer. If none are permitted, defer the spawn eight updates; do not add a hidden enemy or retry indefinitely. A successful spawn reloads the level's spawn interval. Track actual encounter density in playtests so scheduling restrictions do not silently erase the intended difficulty increase.
 
@@ -199,7 +216,7 @@ Each scanline still has its own write deadlines in a two-line kernel. Before acc
 
 ### Initial two-enemy display
 
-For the first kernel, position one enemy graphic during blanking and draw that enemy for the frame. When two enemies are active, alternate them; when one is active, draw it every frame. Choose by greatest draw age with a stable slot-index tie-break so spawning/freeing slots cannot starve an enemy. This avoids mid-arena repositioning in the first implementation.
+For the first kernel, position one enemy or burst graphic during blanking and draw it for the frame. When two objects are present, alternate them; when one is present, draw it every frame. Choose by greatest draw age with a stable slot-index tie-break so spawning/freeing slots cannot starve an enemy. Kills retain their draw age when switching to a burst. This avoids mid-arena repositioning in the first implementation.
 
 At two enemies this targets one omitted frame between appearances, approximately 30 appearances per second per enemy. It must pass television readability testing; if it is too faint, improve reuse at separated heights before calling the baseline complete. Use software combat state even on omitted frames. Never let alternate-frame drawing cause alternate-frame damage.
 
@@ -298,6 +315,7 @@ Host tests verify the integer model and generated data; they do not prove the as
 | Beam | Matching-lane triangles die, wrong lanes survive, squares remain, and a square does not block a triangle behind it. Beam pattern covers its legal lane positions. |
 | Bomb boundary | With zero movement in the fixture, `24.00` dies and `24.01` survives; square fill state agrees. Both types can die in one bomb. |
 | Resolution order | Same-frame beam+bomb grants one kill per target. A successful attack prevents contact damage; multiple surviving contacts reduce HP without underflow. |
+| Destruction burst | A scored kill draws all three stages at its final position, awards score once, and expires after 18 updates. Two bursts or a burst plus a live enemy each appear at least every other frame. A reserved burst slot cannot be reused early; reset clears all effects. |
 | Movement | Fractional stepping, subtraction near zero, and every lane/radius mapping are correct. No sprite leaves the arena. |
 | Spawn limits | Never exceed active cap, duplicate a baseline lane, overwrite a live slot, or spin on failed placement. Square spacing is honored. |
 | Fairness | At each speed, measure the exact number of updates from bomb-range entry to contact. Later-level spawn mixes retain usable bomb windows. |

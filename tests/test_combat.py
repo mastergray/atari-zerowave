@@ -52,6 +52,7 @@ class CombatTests(unittest.TestCase):
         m.poke("EnemyRadiusHi", radius, slot)
         m.poke("EnemyRadiusLo", fraction, slot)
         m.poke("EnemyAge", 0, slot)
+        m.poke("EnemyVisual", 0, slot)
 
     def score(self, m):
         hi, lo = m.value("ScoreHi"), m.value("ScoreLo")
@@ -118,11 +119,17 @@ class CombatTests(unittest.TestCase):
             self.assertTrue(m.value("EnemyFlags", 1) & 0x80)
             self.assertEqual(self.score(m), 25 if square else 10)
             if square:
+                if m.value("SelectedSlot") != 1:
+                    self.frame(m, fire=True)
+                self.assertEqual(m.value("SelectedSlot"), 1)
                 self.assertEqual(m.value("EnemySprite", 1), m.sym["SpriteSquare"] >> 8)
             m.poke("EnemyRadiusLo", 0, 1)
             self.frame(m, fire=True)
             self.assertTrue(m.value("EnemyFlags", 1) & 0x80, "Ring must not deal later damage")
             if square:
+                if m.value("SelectedSlot") != 1:
+                    self.frame(m, fire=True)
+                self.assertEqual(m.value("SelectedSlot"), 1)
                 self.assertEqual(m.value("EnemySprite", 1), m.sym["SpriteSquareReady"] >> 8)
 
     def test_bomb_and_beam_award_each_kill_once_before_contact(self):
@@ -314,6 +321,82 @@ class CombatTests(unittest.TestCase):
                     writes = [(cy % 76, reg, value) for cy, reg, value in m.bus.events
                               if (cy - origin) // 76 == 42 + line and reg in (0x0e, 0x0f)]
                     self.assertEqual(writes, expected, (score, hp, line))
+
+    def test_beam_kill_burst_stays_at_hit_and_expires_without_repeated_damage(self):
+        for lane, mask in enumerate(MASKS):
+            m = self.game()
+            self.enemy(m, 0, lane, 63)
+            for elapsed in range(19):
+                self.frame(m, mask)
+                self.assertEqual(m.value("EnemyFlags"), 0)
+                self.assertEqual(m.value("ActiveCount"), 0)
+                self.assertEqual(m.value("EnemyVisual"), max(0, 18 - elapsed))
+                self.assertEqual(self.score(m), 10)
+                self.assertEqual(m.value("Health"), 5)
+                x, y = assets.center(lane, 63, assets.load_config())
+                self.assertEqual((m.value("EnemyX"), m.value("EnemyY")), (x - 4, y - 2))
+                self.assertEqual(m.value("SelectedSlot"), 0 if elapsed < 18 else 255)
+                self.assert_arena_colors_and_sprites(m)
+
+    def test_double_bomb_kill_animates_both_slots_on_both_ring_phases(self):
+        for phase in (0, 1):
+            m = self.game()
+            m.poke("FrameCounter", phase)
+            self.enemy(m, 0, 2, 20)
+            self.enemy(m, 1, 6, 24, square=True)
+            drawn = [[], [], []]
+            for elapsed in range(19):
+                self.frame(m, 1, fire=True)
+                self.assertEqual(self.score(m), 35)
+                self.assertEqual(m.value("ActiveCount"), 0)
+                self.assertEqual(m.value("EnemyVisual", 0), max(0, 18 - elapsed))
+                self.assertEqual(m.value("EnemyVisual", 1), max(0, 18 - elapsed))
+                self.assert_arena_colors_and_sprites(m)
+                self.assert_rendered_pattern(m, m.value("DisplayPattern"))
+                if elapsed < 18:
+                    drawn[elapsed // 6].append(m.value("SelectedSlot"))
+            self.assertTrue(all(slots.count(0) == slots.count(1) == 3 for slots in drawn))
+
+    def test_burst_reserves_draw_capacity_until_expiry_and_preserves_survivor(self):
+        m = self.game()
+        m.poke("SpawnTimer", 0)
+        self.enemy(m, 0, 2, 40)
+        self.enemy(m, 1, 6, 45, square=True)
+        for elapsed in range(18):
+            self.frame(m, 8)
+            self.assertEqual(m.value("ActiveCount"), 1)
+            self.assertEqual(m.value("EnemyVisual"), 18 - elapsed)
+            self.assertLessEqual(m.value("EnemyAge", 1), 1)
+            self.assertEqual(m.value("EnemyFlags", 1), 0xc6)
+            self.assertFalse(any(m.value("EnemyFlags", s) for s in (2, 3)))
+            self.assert_arena_colors_and_sprites(m)
+        self.frame(m, 8)
+        self.assertEqual(m.value("ActiveCount"), 2)
+        self.assertEqual(m.value("EnemyVisual"), 0)
+        self.assertTrue(m.value("EnemyFlags") & 0x80)
+        self.assertEqual(m.value("EnemyRadiusHi"), 63)
+
+    def test_game_over_finishes_bursts_and_reset_clears_them(self):
+        m = self.game()
+        m.poke("Health", 1)
+        self.enemy(m, 0, 0, 8, square=True)
+        self.enemy(m, 1, 2, 40)
+        self.frame(m, 8)
+        self.assertEqual(m.value("GameMode"), 2)
+        self.assertEqual(m.value("EnemyVisual", 0), 0)  # contact is not a scored kill
+        self.assertEqual(m.value("EnemyVisual", 1), 18)
+        for elapsed in range(1, 19):
+            self.frame(m)
+            self.assertEqual(m.value("EnemyVisual", 1), 18 - elapsed)
+            self.assertEqual(self.score(m), 10)
+            self.assert_arena_colors_and_sprites(m)
+        self.frame(m, reset=True)
+        self.enemy(m, 0, 2, 40)
+        self.frame(m, 8)
+        self.assertEqual(m.value("EnemyVisual"), 18)
+        self.frame(m, reset=True)
+        self.assertEqual([m.value("EnemyVisual", s) for s in range(4)], [0] * 4)
+        self.assertEqual(m.value("SelectedSlot"), 255)
 
     def test_scripted_survival_keeps_two_enemies_visible_and_timing_stable(self):
         m = self.game(False)

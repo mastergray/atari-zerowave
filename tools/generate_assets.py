@@ -20,6 +20,11 @@ DIGITS = [(7, 5, 5, 5, 7), (2, 6, 2, 2, 7), (7, 1, 7, 4, 7),
           (7, 1, 7, 1, 7), (5, 5, 7, 1, 1), (7, 4, 7, 1, 7),
           (7, 4, 7, 5, 7), (7, 1, 1, 1, 1), (7, 5, 7, 5, 7),
           (7, 5, 7, 1, 7)]
+BURSTS = [
+    ("Flash", [0x00, 0x18, 0x3c, 0x7e, 0x7e, 0x3c, 0x18, 0x00]),
+    ("Sparks", [0x24, 0x81, 0x5a, 0x3c, 0x3c, 0x5a, 0x81, 0x24]),
+    ("Embers", [0x81, 0x00, 0x24, 0x00, 0x00, 0x24, 0x00, 0x81]),
+]
 
 
 def load_config():
@@ -146,15 +151,21 @@ def generate():
     assert 1 <= tuning["start_hp"] <= 5 and 1 <= tuning["enemy_cap"] <= 2
     assert 0 < tuning["enemy_speed"] <= 255 and 0 < tuning["spawn_interval"] <= 255
     assert 0 <= tuning["square_weight"] <= 4 and 0 < tuning["square_spawn_gap"] <= 255
+    assert tuning["enemy_burst_stage_frames"] >= 2 and tuning["enemy_burst_stage_frames"] % 2 == 0
+    assert len(tuning["enemy_burst_colors"]) == len(BURSTS)
+    assert all(0 <= color <= 255 for color in tuning["enemy_burst_colors"])
+    burst_frames = len(BURSTS) * tuning["enemy_burst_stage_frames"]
+    assert burst_frames < 256
     radii = bomb_radii(tuning)
     assert radii == sorted(set(radii)) and radii[0] > 0
     OUT.mkdir(parents=True, exist_ok=True)
     constants = ["; Generated; edit config/tuning.json instead."]
     for name in ("bomb_cooldown", "bomb_sound_frames", "bomb_radius", "arena_rows", "beam_fade_start",
                  "spawn_radius", "contact_radius", "start_hp", "enemy_cap", "enemy_speed",
-                 "spawn_interval", "square_weight", "square_spawn_gap"):
+                 "spawn_interval", "square_weight", "square_spawn_gap", "enemy_burst_stage_frames"):
         constants.append(f"{name.upper()} = {tuning[name]}")
     constants.append(f"BOMB_ANIMATION_FRAMES = {animation_frames}")
+    constants.append(f"ENEMY_BURST_FRAMES = {burst_frames}")
     for name, value in tuning["colors"].items():
         constants.append(f"COLOR_{name.upper()} = ${value:02x}")
     constants.append(f"FIXTURE_COUNT = {len(fixtures)}")
@@ -184,6 +195,11 @@ def generate():
             streams[values] = f"BeamMotionStream{len(streams)}"
         motion_labels.append(streams[values])
     render = ["; Generated display data. All indexed loads are page-safe.\n"]
+    stages = [0] + [(burst_frames - timer) // tuning["enemy_burst_stage_frames"]
+                    for timer in range(1, burst_frames + 1)]
+    render.append("BurstSpriteByTimer:\n    .byte " +
+                  ",".join(">Burst" + BURSTS[stage][0] for stage in stages) + "\n")
+    render.append(byte_lines("BurstColorByTimer", [tuning["enemy_burst_colors"][stage] for stage in stages]))
     # Timer counts down. Zero is neutral; 16..13 select the smallest ring, etc.
     render.append(byte_lines("BombPatternByTimer", [8] + [
         9 + (animation_frames - timer) // tuning["bomb_stage_frames"]
@@ -203,12 +219,16 @@ def generate():
     turret = [0] * tuning["arena_rows"]
     turret[38:42] = [0x18, 0x3c, 0x7e, 0x3c]
     render.append(byte_lines("TurretRows", turret[::-1], 128))
-    for name, shape in (
+    for (name, shape), (burst_name, burst) in zip((
         ("Triangle", [0x18, 0x3c, 0x7e, 0xff]),
         ("Square", [0x7e, 0x42, 0x42, 0x7e]),
         ("SquareReady", [0x7e] * 4),
-    ):
-        render.append(byte_lines("Sprite" + name, [0] * 80 + shape[::-1] + [0] * 80, 256))
+    ), BURSTS):
+        # Two sprites share the blank padding in one page. The ordinary enemy
+        # lives at offset 80; the burst at 164. Both 80-row pointer windows are
+        # page-safe and cannot see the other's graphic.
+        render.append(byte_lines("Sprite" + name, [0] * 80 + shape[::-1], 256))
+        render.append(byte_lines("Burst" + burst_name, [0] * 80 + burst[::-1] + [0] * 80))
     hud = hud_rows()
     render.append("    IF DISPLAY_TEST\n")
     for plane in range(6):

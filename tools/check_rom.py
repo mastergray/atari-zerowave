@@ -38,6 +38,9 @@ def check(display=False):
             assert (address & 255) + 4 < 256, f"Page crossing: {name}"
         elif name.startswith("Sprite"):
             assert address & 255 == 0, f"Unaligned sprite: {name}"
+        elif name in ("BurstFlash", "BurstSparks", "BurstEmbers"):
+            assert address & 255 == 84, f"Bad paired sprite offset: {name}"
+            assert (address & 255) + 76 + 6 + 79 < 256, f"Burst page crossing: {name}"
     manifest = json.loads((ROOT / "build/generated/manifest.json").read_text())
     report = {
         "rom_bytes": len(rom), "sha256": hashlib.sha256(rom).hexdigest(),
@@ -51,6 +54,7 @@ def check(display=False):
         "raster_streams": manifest["unique_raster_streams"],
         "vertical_diagonal_beam_width_clocks": 1,
         "beam_release_fade_updates": manifest["tuning"]["beam_fade_start"],
+        "enemy_burst_updates": sym["ENEMY_BURST_FRAMES"],
         "bomb_radii": manifest["bomb_radii"],
         "bomb_animation_frames": manifest["bomb_animation_frames"],
         "reference_commit": "fb68a689d3fa6346696dd2310e5dd3d167c065a1",

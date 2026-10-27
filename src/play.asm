@@ -7,6 +7,7 @@ UpdateGame:
     lda #0
     sta BombEvent
     jsr SampleInput
+    jsr UpdateBursts       ; advance old effects, including during game over
     lda PressedButtons
     and #1
     bne .start

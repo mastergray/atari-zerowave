@@ -19,6 +19,8 @@
   "spawn_interval": 90,
   "square_weight": 1,
   "square_spawn_gap": 72,
+  "enemy_burst_stage_frames": 6,
+  "enemy_burst_colors": [14, 46, 68],
   "colors": {
     "turret": 14,
     "triangle": 206,

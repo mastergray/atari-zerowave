@@ -77,6 +77,11 @@ Bomb damage happens once, immediately on the accepted press, within a fixed
 radius. The expanding ring is visual feedback; an enemy entering it afterward
 survives. Beam damage continues while held, including ring display frames.
 
+Destroyed enemies leave a short burst at the hit position: a white flash, gold
+sparks, then dim red embers over 18 updates (about 0.3 seconds). Kills and score
+apply immediately. A burst temporarily occupies the old sprite slot, so a new
+spawn may wait for it to finish when both display slots are occupied.
+
 For this playtest, check whether triangles are easy to hit, the square's fill cue
 gives enough warning, the bomb feels responsive, and two approaching enemies
 remain readable. Let enemies through once to check health loss and restart.
@@ -97,7 +102,7 @@ appearances further.
 
 ## Validation and development
 
-`make check` runs 37 tests covering generated geometry, all joystick combinations,
+`make check` runs 41 tests covering generated geometry, all joystick combinations,
 button edges and exact cooldown boundaries, both startup banks, stack/guard
 integrity, fixed frame lengths, kernel write deadlines, and display fairness.
 Tests check every animation stage for presses on either frame phase, actual
@@ -108,6 +113,8 @@ re-aiming, reset, and simultaneous bombing with two enemies.
 Combat checks cover all lane/radius coordinates, fixed-point boundaries, attack
 priority, BCD score carries/saturation, start/reset input edges, spawn limits,
 square spacing, HUD digits/health, and a 1,400-frame scripted survival run.
+Burst checks cover all eight hit directions, every animation stage, double bomb
+kills, surviving-enemy visibility, spawn deferral, expiry, and reset/game over.
 `build/combat-timing.json` records the measured update/prepare costs and stack use.
 The CPU tests execute the assembled cartridge using py65 and a limited VCS bus;
 they do not simulate TIA pixels.
@@ -121,9 +128,10 @@ The display ROM saves 56 TIA snapshots: neutral, both phases of all eight
 directions, all 16 bomb frames, and both phases of the three overlap layouts
 during the largest ring, plus the last held beam, all 15 release frames, and the
 cleared frame. Results are indexed by
-`build/stella/latest.json`. The playable ROM adds 18 captures of natural movement,
+`build/stella/latest.json`. The playable ROM adds 34 captures of natural movement,
 two-enemy drawing, kills, exact bomb-range boundaries, game over/restart, and HUD
-values, indexed by `build/stella/latest-combat.json`. Validated with Stella 6.0.2. See
+values, plus both phases of every destruction-burst stage, indexed by
+`build/stella/latest-combat.json`. Validated with Stella 6.0.2. See
 [kernel timing notes](docs/KERNEL_TIMING.md) for the measured budgets and limits.
 Television flicker, real joystick diagonals, and sound still need a hardware pass.
 

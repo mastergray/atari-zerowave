@@ -176,24 +176,42 @@ The ring uses the playfield kernel and player graphics are written on both
 phases. Enemy draw ages do not depend on effect phase, so two enemies still
 appear every other frame. No extra flicker phase is added for enemies.
 
+Scored kills retain their last position for an 18-update sprite burst. The three
+stages last six updates each: white flash, gold sparks, and dim red embers. The
+active flag clears and score applies immediately. `EnemyVisual` holds the timer;
+the renderer schedules a nonzero timer alongside live enemies using the same
+draw-age rule. Thus two bomb kills each receive three appearances per stage.
+Timers advance in game over too; reset clears the entire slot pool.
+
+`ScanEnemies` counts live enemies separately from drawable objects, using the
+existing `Temp` scratch byte for the latter. Bursts reserve their old slots.
+A due spawn waits if the combined enemy/burst count is already two, keeping the
+one-omitted-frame limit for survivors. No extra persistent RAM is allocated.
+
+Each normal four-row enemy shares a page with one eight-row burst shape. Their
+graphics begin at offsets 80 and 164, with overlapping blank padding. The burst
+pointer is `EnemyY + 90`, centering it two logical rows above the old top. All
+80 kernel reads stay inside the page and cannot reach the other shape. Sprite
+selection/color setup stays in blanking; neither arena kernel gains instructions.
+
 ## Space and update budgets
 
 | Resource | Current measurement |
 | --- | --- |
-| Bank 0 end / room before trampoline | `$F530` / 2,640 bytes |
-| Bank 1 end / room before trampoline | `$FD6D` / 531 bytes |
+| Bank 0 end / room before trampoline | `$F554` / 2,604 bytes |
+| Bank 1 end / room before trampoline | `$FEC5` / 187 bytes |
 | Cartridge | 8,192 bytes, identical bank tails and vectors |
 | RAM | Fixed 128-byte map, including reserves and stack |
 | Stack | Six bytes observed; 16 reserved |
 | Guard | Eight bytes at `$E8–$EF`, intact in tested runs |
-| Update cost | 250–1,097 cycles from `GameFrame` to `LogicDone` |
-| Render preparation done | 1,382–1,534 cycles from VSYNC line start |
+| Update cost | 311–1,025 cycles from `GameFrame` to `LogicDone` |
+| Render preparation done | 1,382–1,610 cycles from VSYNC line start |
 
-The combat suite records 1,848 frame samples in `build/combat-timing.json`,
+The combat suite records 2,093 frame samples in `build/combat-timing.json`,
 including a 1,400-frame survival run, movement/attack/contact boundaries, scoring,
-spawning, HUD values, and restart. Tests enforce the 2,000-cycle update and
-2,400-cycle preparation limits. The static diagnostic build has 2,644 bytes free
-in bank 0 and 776 in bank 1.
+spawning, destruction bursts, HUD values, and restart. Tests enforce the 2,000-cycle update and
+2,400-cycle preparation limits. The static diagnostic build has 2,608 bytes free
+in bank 0 and 456 in bank 1.
 
 Four 64-byte magnitude tables live in bank 0. Cardinal/diagonal signs reconstruct
 all eight lanes there; cached sprite coordinates cross into the render bank.
@@ -225,9 +243,10 @@ with sprite pixels preserved. The NW ray occupies 92 screenshot pixels, down
 from 464, and retains one uniform hue during its fade. Cartridge tests also
 check ball-motion timing, clearing player motion, release in all eight directions
 and hues, re-aiming, reset, and fading during bombs with two enemies.
-The playable pass adds 18 snapshots of natural spawns/movement, both phases of a
+The playable pass adds 34 snapshots of natural spawns/movement, both phases of a
 two-enemy scene, triangle kills, square immunity, bomb-radius boundaries,
-game-over/restart and representative HUD values. Its debugger state confirms
+game-over/restart, representative HUD values, and every burst stage alongside
+a surviving enemy or a second burst. Its debugger state confirms
 score awards and start/reset input handling. It uses explicit RAM fixtures only
 for boundary cases, after first exercising natural spawning and movement.
 Real hardware

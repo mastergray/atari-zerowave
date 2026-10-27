@@ -1,3 +1,17 @@
+; Cosmetic lifetimes advance before combat sets new timers. A/X clobbered,
+; no scratch, at most four visits and <100 cycles. Coordinates stay fixed.
+UpdateBursts:
+    SUBROUTINE
+    ldx #MAX_ENEMIES-1
+.slot:
+    lda EnemyVisual,x
+    beq .next
+    dec EnemyVisual,x
+.next:
+    dex
+    bpl .slot
+    rts
+
 ; Four allocated slots, at most two active. Movement is unsigned 8.8 fixed point.
 ; A/X/Y, CandidateLane, CoordDX/DY clobbered. Two active slots: <550 cycles.
 MoveEnemies:
@@ -84,12 +98,14 @@ PositionEnemy:
     sta EnemyY,x
     rts
 
-; Outputs ActiveCount, FreeSlot ($ff if full), UsedLanes. A/X/Y clobbered.
-; At most four slot visits, <200 cycles for the two-enemy build.
+; Outputs ActiveCount, DrawableCount, FreeSlot ($ff if full), UsedLanes.
+; Bursts reserve their old slots and count toward the two-object display cap.
+; A/X/Y clobbered. At most four slot visits, <250 cycles for this build.
 ScanEnemies:
     SUBROUTINE
     lda #0
     sta ActiveCount
+    sta DrawableCount
     sta UsedLanes
     lda #$ff
     sta FreeSlot
@@ -97,10 +113,16 @@ ScanEnemies:
 .slot:
     lda EnemyFlags,x
     bmi .active
+    lda EnemyVisual,x
+    beq .free
+    inc DrawableCount
+    jmp .next
+.free:
     stx FreeSlot
     jmp .next
 .active:
     inc ActiveCount
+    inc DrawableCount
     and #7
     tay
     lda LaneBits,y
@@ -120,6 +142,7 @@ TrySpawn:
     lda ActiveCount
     cmp ActiveCap
     bcs .done
+    lda DrawableCount
     cmp #VALIDATED_ENEMY_CAP
     bcs .done
     lda FreeSlot
@@ -169,6 +192,7 @@ TrySpawn:
     sta EnemyVisual,x
     jsr PositionEnemy
     inc ActiveCount
+    inc DrawableCount
     lda SpawnInterval
     sta SpawnTimer
 .done:

@@ -101,7 +101,10 @@ PrepareRender:
     ldx #0
 .choose:
     lda EnemyFlags,x
-    bpl .next
+    bmi .drawable
+    lda EnemyVisual,x
+    beq .next
+.drawable:
     lda EnemyAge,x
     cmp #$ff
     beq .ageReady
@@ -126,6 +129,19 @@ PrepareRender:
     clc
     adc #4                ; reversed row index: top maps to sprite byte 83
     sta EnemySprite       ; all sprite streams begin on a page boundary
+    lda EnemyVisual,x
+    beq .liveEnemy
+    tay
+    lda EnemySprite
+    clc
+    adc #(<BurstFlash+2)  ; 8-row burst centered over the old 4-row enemy
+    sta EnemySprite
+    lda BurstSpriteByTimer,y
+    sta EnemySprite+1
+    lda BurstColorByTimer,y
+    sta COLUP1
+    jmp .triangle
+.liveEnemy:
     lda #>SpriteTriangle
     sta EnemySprite+1
     lda #COLOR_TRIANGLE

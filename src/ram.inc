@@ -9,6 +9,8 @@ EnemyY          ds 4
 EnemyPhase      ds 4
 EnemyAge        ds 4
 EnemyVisual     ds 4
+; EnemyVisual is the remaining destruction-burst lifetime; active flags clear
+; immediately on a kill. A nonzero timer keeps only the last sprite position.
 ; Prototype diagnostics occupy future game-state bytes.
 LayoutId        ds 1
 FrameCounter    ds 1
@@ -69,6 +71,7 @@ UsedLanes      = HudScoreLeft+3
 CandidateLane  = HudScoreLeft+4
 CoordDX        = HudScoreRight
 CoordDY        = HudScoreRight+1
+DrawableCount  = Temp
 GuardStart      ds 8
 StackBottom     ds 16
 RamEnd = *

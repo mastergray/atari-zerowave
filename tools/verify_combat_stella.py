@@ -14,7 +14,8 @@ def main():
     sym = symbols()
     commands, labels, advances = [], [], []
     fields = ("GameMode", "Health", "ScoreHi", "ScoreLo", "ActiveCount", "BombCount",
-              "BombCooldown", "EnemyFlags", "EnemyRadiusHi", "EnemyRadiusLo", "BeamEnabled")
+              "BombCooldown", "EnemyFlags", "EnemyRadiusHi", "EnemyRadiusLo", "BeamEnabled",
+              "EnemyVisual", "SelectedSlot")
 
     def frame(count=1):
         commands.extend([f"frame #{count}", "print _cycleslo"])
@@ -51,6 +52,7 @@ def main():
     poke("SpawnInterval", 255)
     for slot in range(4):
         poke("EnemyFlags", 0, slot)
+        poke("EnemyVisual", 0, slot)
     poke("EnemyFlags", 0xc2)
     poke("EnemyRadiusHi", 24)
     poke("EnemyRadiusLo", 1)
@@ -75,6 +77,7 @@ def main():
     poke("Health", 1)
     for slot, lane in enumerate((0, 4)):
         poke("EnemyFlags", 0xc0 | lane, slot)
+        poke("EnemyVisual", 0, slot)
         poke("EnemyRadiusHi", 8, slot)
         poke("EnemyRadiusLo", 0, slot)
     frame(2)
@@ -102,6 +105,46 @@ def main():
     frame(2)
     capture("hud-9876")
 
+    # Capture both object phases in each of the three burst stages. The RAM
+    # timer at VSYNC is one update ahead of the completed picture, hence 17/16,
+    # 11/10 and 5/4 represent displayed timers 18/17, 12/11 and 6/5.
+    commands.extend(["joy0fire #1", "ram SWBCNT #1", "ram SWCHB $FE"])
+    frame()
+    commands.extend(["ram SWCHB $FF", "ram SWBCNT #0"])
+    frame()
+    poke("EnemySpeed", 0)
+    poke("SpawnTimer", 255)
+    poke("SpawnInterval", 255)
+
+    def burst_fixture(radius):
+        for slot, flags in enumerate((0x82, 0xc6)):
+            poke("EnemyFlags", flags, slot)
+            poke("EnemyRadiusHi", radius, slot)
+            poke("EnemyRadiusLo", 0, slot)
+            poke("EnemyVisual", 0, slot)
+            poke("EnemyAge", 0, slot)
+        frame(2)
+
+    def burst_captures(prefix):
+        frame()  # attack accepted; completed picture is still pre-attack
+        for stage in range(3):
+            frame(1 if stage == 0 else 5)
+            capture(f"{prefix}-{stage}-0")
+            frame()
+            capture(f"{prefix}-{stage}-1")
+        frame(5)
+        capture(f"{prefix}-finished")
+
+    burst_fixture(40)
+    capture("burst-beam-before")
+    commands.append("joy0right #0")
+    burst_captures("burst-beam")
+    commands.extend(["joy0right #1", "joy0up #0"])
+    burst_fixture(20)
+    capture("burst-bomb-before")
+    commands.append("joy0fire #0")
+    burst_captures("burst-bomb")
+
     run, values, snapshots, transcript = run_stella("atari-zerowave", commands, labels, advances, args.timeout)
     columns = {name: values("*" + name) for name in fields}
     assert all(len(v) == len(labels) for v in columns.values()), columns
@@ -128,6 +171,16 @@ def main():
         expect(label, GameMode=1, Health=5, ScoreHi=0, ScoreLo=0, ActiveCount=0, BombCount=0)
     expect("hud-1234", ScoreHi=0x12, ScoreLo=0x34, Health=3)
     expect("hud-9876", ScoreHi=0x98, ScoreLo=0x76, Health=1)
+    for prefix, active, score in (("burst-beam", 1, 0x10), ("burst-bomb", 0, 0x45)):
+        for stage in range(3):
+            selected = []
+            for phase in (0, 1):
+                label = f"{prefix}-{stage}-{phase}"
+                expect(label, EnemyFlags=0, EnemyVisual=17 - stage * 6 - phase,
+                       ActiveCount=active, ScoreLo=score, Health=5)
+                selected.append(states[label]["SelectedSlot"])
+            assert set(selected) == {0, 1}, (prefix, stage, selected)
+        expect(f"{prefix}-finished", EnemyVisual=0, SelectedSlot=1 if active else 255, ScoreLo=score)
     report = dict(directory=str(run.relative_to(ROOT)), session=transcript.name,
                   snapshots=dict(zip(labels, [p.name for p in snapshots])), states=states,
                   frame_lines=262, cycles_per_frame=19912)

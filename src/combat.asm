@@ -51,6 +51,8 @@ ResolveCombat:
     jsr AwardScore
     lda #0
     sta EnemyFlags,x
+    lda #ENEMY_BURST_FRAMES
+    sta EnemyVisual,x     ; cosmetic only; score/damage resolved immediately
 .next:
     inx
     cpx #MAX_ENEMIES
