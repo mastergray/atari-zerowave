@@ -4,10 +4,11 @@ A native Atari 2600 prototype of the stationary-turret game described in
 [the port outline](docs/PORT_OUTLINE.md) and [implementation spec](docs/IMPLEMENTATION_SPEC.md).
 The cartridge targets NTSC, uses ordinary 8 KiB F8 banking, and needs no extra RAM.
 
-The current build implements the first controls/display milestone: a centered
-turret, eight-way color-cycling beam, button-triggered expanding bomb ring and sound,
-one-second bomb cooldown, and eleven static enemy layouts. Enemies do not move
-or take damage yet. Health, score, levels, and title/game-over screens come later.
+The current build is a playable two-enemy combat prototype: approaching triangles
+and squares, beam and bomb kills, five health points, a four-digit score, and
+start/game-over/restart screens. It uses fixed opening difficulty; levels and
+higher enemy counts come next. The approved thin beam, color cycle, release fade,
+and expanding bomb ring are retained.
 
 ## Build and run
 
@@ -37,9 +38,20 @@ custom mappings can be changed in its input settings.
 | Control | Stella key | Prototype behavior |
 | --- | --- | --- |
 | Joystick direction | Arrow keys; combine two for diagonals | Hold to fire a solid color-cycling beam; release to fade |
-| Joystick button | Space | Expanding bomb ring and sound on a fresh press, if ready |
-| SELECT | F1 | Advance to the next static test layout |
-| RESET | F2 | Return to the first layout and clear bomb state and beam afterglow |
+| Joystick button | Space | Start/restart; during play, bomb on a fresh press if ready |
+| SELECT | F1 | No effect in the playable ROM |
+| RESET | F2 | Start a fresh run with five HP and zero score |
+
+Press Space at `FIRE` to start. The upper-left number is your score; the five
+white marks on the right are health. Green triangles die to a beam on their
+approach lane and award 10 points. Pink squares require a bomb and award 25.
+A square fills in when it enters bomb range. Each enemy reaching the turret
+costs one health point. At zero health, `OVER` appears and the final score stays
+visible; release and press Space again, or use F2, to restart.
+
+Enemies approach along eight lanes, with at most two active and no duplicate
+lanes. The first spawn arrives about 1.5 seconds after starting. Movement and
+spawn settings stay fixed throughout this milestone; score saturates at 9999.
 
 The `BOMB` label is green when ready and amber during the 60-update cooldown.
 Holding the button produces one bomb; pressing during cooldown does not queue
@@ -53,20 +65,28 @@ held. Releasing the stick stops firing and sound immediately, while the last bea
 holds its hue and dims over 15 frames (about a quarter-second). This uses
 [Laser Blast's brightness countdown](docs/KERNEL_TIMING.md#effect-scheduling).
 Re-aiming immediately replaces the afterglow with a bright beam in the new
-direction. RESET with fire held does not trigger a bomb.
+direction. The afterglow deals no damage. Starting or resetting with fire held
+does not trigger a bomb; release the button before bombing.
 
 Vertical and diagonal beams use the TIA ball at one color clock wide. Diagonals
 advance at most one color clock per physical scanline, giving a connected thin
 line. Left/right beams retain their existing two-scanline thickness and reach.
 Both techniques use the same color cycle and release fade.
 
-Try releasing each direction, re-aiming during the fade, and bombing while the
-beam fades. Check
-whether the expanding ring is easy to see and whether the beam remains
-easy to aim. The ring is visual feedback for the planned immediate, fixed-radius
-damage; it does not introduce a moving damage front or a lingering blast.
+Bomb damage happens once, immediately on the accepted press, within a fixed
+radius. The expanding ring is visual feedback; an enemy entering it afterward
+survives. Beam damage continues while held, including ring display frames.
 
-SELECT cycles through N, NE, E, SE, S, SW, W, and NW single-target layouts, then
+For this playtest, check whether triangles are easy to hit, the square's fill cue
+gives enough warning, the bomb feels responsive, and two approaching enemies
+remain readable. Let enemies through once to check health loss and restart.
+
+## Static display test
+
+`make all` also builds `build/atari-zerowave-display.bin`. Open it with
+`make run-display` to revisit the earlier visual fixtures without combat.
+
+In that ROM, SELECT cycles through N, NE, E, SE, S, SW, W, and NW single-target layouts, then
 east/west at the same height, two diagonals near the turret, and a north/south pair.
 Triangles are green. Squares are pink and fill in when inside bomb range. The SE
 layout demonstrates this cue. These are visual fixtures: firing does not remove
@@ -77,7 +97,7 @@ appearances further.
 
 ## Validation and development
 
-`make check` runs 20 tests covering generated geometry, all joystick combinations,
+`make check` runs 37 tests covering generated geometry, all joystick combinations,
 button edges and exact cooldown boundaries, both startup banks, stack/guard
 integrity, fixed frame lengths, kernel write deadlines, and display fairness.
 Tests check every animation stage for presses on either frame phase, actual
@@ -85,6 +105,10 @@ playfield data, ball motion/enable timing, uniform beam color, sprite rows, ever
 continuous beam state, and the separate short sound envelope. Release tests cover
 all eight directions and hues, the exact fade countdown, immediate sound cutoff,
 re-aiming, reset, and simultaneous bombing with two enemies.
+Combat checks cover all lane/radius coordinates, fixed-point boundaries, attack
+priority, BCD score carries/saturation, start/reset input edges, spawn limits,
+square spacing, HUD digits/health, and a 1,400-frame scripted survival run.
+`build/combat-timing.json` records the measured update/prepare costs and stack use.
 The CPU tests execute the assembled cartridge using py65 and a limited VCS bus;
 they do not simulate TIA pixels.
 
@@ -92,12 +116,14 @@ they do not simulate TIA pixels.
 xvfb-run -a make stella-check
 ```
 
-This runs the ROM in an isolated Stella window, checks input/bomb state and
-262-line timing, and saves 56 TIA snapshots: neutral, both phases of all eight
+This runs both ROMs in isolated Stella windows and checks 262-line timing.
+The display ROM saves 56 TIA snapshots: neutral, both phases of all eight
 directions, all 16 bomb frames, and both phases of the three overlap layouts
 during the largest ring, plus the last held beam, all 15 release frames, and the
 cleared frame. Results are indexed by
-`build/stella/latest.json`. Validated with Stella 6.0.2. See
+`build/stella/latest.json`. The playable ROM adds 18 captures of natural movement,
+two-enemy drawing, kills, exact bomb-range boundaries, game over/restart, and HUD
+values, indexed by `build/stella/latest-combat.json`. Validated with Stella 6.0.2. See
 [kernel timing notes](docs/KERNEL_TIMING.md) for the measured budgets and limits.
 Television flicker, real joystick diagonals, and sound still need a hardware pass.
 
@@ -105,9 +131,9 @@ Assembly lives in `src/`; `config/` contains tuning and static fixtures;
 `tools/generate_assets.py` produces the shared graphics tables. The independent
 Godot reference checkout in `res/` is ignored by this repository.
 
-Next is milestone 2: radial enemy movement, beam/bomb hit rules, contact damage,
-health, score, and restart. Keep the two-enemy cap while testing combat; later
-three- and four-enemy levels require the sprite reuse work specified in the plan.
+Next is combat playtesting, followed by the level table, level transitions, and
+additional hit/death sounds. Keep the two-enemy cap until the later sprite reuse
+work establishes a readable schedule for three or four enemies.
 
 ## Local repository
 

@@ -11,7 +11,15 @@ FONT = {
     "T": (7, 2, 2, 2, 2), "E": (7, 4, 6, 4, 7),
     "S": (7, 4, 7, 1, 7), "B": (6, 5, 6, 5, 6),
     "O": (7, 5, 5, 5, 7), "M": (5, 7, 7, 5, 5),
+    "F": (7, 4, 6, 4, 4), "I": (7, 2, 2, 2, 7),
+    "R": (6, 5, 6, 5, 5), "P": (6, 5, 6, 4, 4),
+    "L": (4, 4, 4, 4, 7), "A": (2, 5, 7, 5, 5),
+    "Y": (5, 5, 2, 2, 2), "V": (5, 5, 5, 5, 2),
 }
+DIGITS = [(7, 5, 5, 5, 7), (2, 6, 2, 2, 7), (7, 1, 7, 4, 7),
+          (7, 1, 7, 1, 7), (5, 5, 7, 1, 1), (7, 4, 7, 1, 7),
+          (7, 4, 7, 5, 7), (7, 1, 1, 1, 1), (7, 5, 7, 5, 7),
+          (7, 5, 7, 1, 7)]
 
 
 def load_config():
@@ -135,11 +143,16 @@ def generate():
     assert len(tuning["beam_colors"]) == 8
     assert all(0 <= c <= 255 and c & 15 == 14 for c in tuning["beam_colors"])
     assert 1 <= tuning["beam_fade_start"] <= 15
+    assert 1 <= tuning["start_hp"] <= 5 and 1 <= tuning["enemy_cap"] <= 2
+    assert 0 < tuning["enemy_speed"] <= 255 and 0 < tuning["spawn_interval"] <= 255
+    assert 0 <= tuning["square_weight"] <= 4 and 0 < tuning["square_spawn_gap"] <= 255
     radii = bomb_radii(tuning)
     assert radii == sorted(set(radii)) and radii[0] > 0
     OUT.mkdir(parents=True, exist_ok=True)
     constants = ["; Generated; edit config/tuning.json instead."]
-    for name in ("bomb_cooldown", "bomb_sound_frames", "bomb_radius", "arena_rows", "beam_fade_start"):
+    for name in ("bomb_cooldown", "bomb_sound_frames", "bomb_radius", "arena_rows", "beam_fade_start",
+                 "spawn_radius", "contact_radius", "start_hp", "enemy_cap", "enemy_speed",
+                 "spawn_interval", "square_weight", "square_spawn_gap"):
         constants.append(f"{name.upper()} = {tuning[name]}")
     constants.append(f"BOMB_ANIMATION_FRAMES = {animation_frames}")
     for name, value in tuning["colors"].items():
@@ -197,8 +210,27 @@ def generate():
     ):
         render.append(byte_lines("Sprite" + name, [0] * 80 + shape[::-1] + [0] * 80, 256))
     hud = hud_rows()
+    render.append("    IF DISPLAY_TEST\n")
     for plane in range(6):
         render.append(byte_lines(f"HudPlane{plane}", [row[plane] for row in hud], 32))
+    render.append("    ELSE\n")
+    render.append(byte_lines("DigitOffsets", [digit * 5 for digit in range(10)]))
+    render.append(byte_lines("DigitLeft", [bits << 5 for glyph in DIGITS for bits in glyph]))
+    render.append(byte_lines("DigitRight", [int(f"{bits:03b}"[::-1], 2) for glyph in DIGITS for bits in glyph]))
+    health = [encode_row({24 + i * 3 for i in range(count)}) for count in range(6)]
+    for plane in (1, 2):
+        render.append(byte_lines(f"HealthMask{plane}", [row[plane + 3] for row in health]))
+    for plane in (1, 2):
+        for operator, suffix in (("<", "Lo"), (">", "Hi")):
+            render.append(f"HudStatus{plane}{suffix}:\n    .byte " +
+                          ",".join(f"{operator}HudText{mode}Left{plane}" for mode in range(3)) + "\n")
+    for mode, word in enumerate(("FIRE", "PLAY", "OVER", "BOMB")):
+        rows = [encode_row({4 + i * 4 + bit for i, char in enumerate(word)
+                            for bit in range(3) if FONT[char][y] & (4 >> bit)}) for y in range(5)]
+        for plane in (1, 2):
+            label = f"HudText{mode}Left{plane}" if mode < 3 else f"BombHud{plane}"
+            render.append(byte_lines(label, [row[plane] for row in rows], 8))
+    render.append("    ENDIF\n")
     (OUT / "graphics.inc").write_text("".join(render))
 
     fixture_data = {f"Fixture{field}{slot}": [] for slot in range(2) for field in ("Flags", "Radius", "X", "Y")}
@@ -217,6 +249,14 @@ def generate():
     # Beam palette belongs to bank 0: game logic freezes its hue on release.
     (OUT / "fixtures.inc").write_text(byte_lines("BeamColors", tuning["beam_colors"]) +
                                       "".join(byte_lines(name, values) for name, values in fixture_data.items()))
+    movement = []
+    for name, lane, axis, origin in (("RadiusXCardinal", 2, 0, tuning["center_x"]),
+                                    ("RadiusYCardinal", 4, 1, tuning["center_y"]),
+                                    ("RadiusXDiagonal", 3, 0, tuning["center_x"]),
+                                    ("RadiusYDiagonal", 3, 1, tuning["center_y"])):
+        movement.append(byte_lines(name, [center(lane, radius, tuning)[axis] - origin
+                                         for radius in range(tuning["spawn_radius"] + 1)]))
+    (OUT / "movement.inc").write_text("".join(movement))
     manifest = {"unique_beam_streams": beam_streams, "unique_playfield_streams": playfield_streams,
                 "unique_raster_streams": len(streams), "ball_patterns": ball_patterns,
                 "bomb_radii": radii, "bomb_animation_frames": animation_frames,

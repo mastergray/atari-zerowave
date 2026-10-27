@@ -79,9 +79,10 @@ class Bus:
 
 
 class Machine:
-    def __init__(self, bank=1):
-        self.sym = symbols()
-        self.bus = Bus((ROOT / "build/atari-zerowave.bin").read_bytes(), bank)
+    def __init__(self, bank=1, diagnostic=False):
+        stem = "atari-zerowave-display" if diagnostic else "atari-zerowave"
+        self.sym = symbols(ROOT / f"build/{stem}.sym")
+        self.bus = Bus((ROOT / f"build/{stem}.bin").read_bytes(), bank)
         self.cpu = MPU(memory=self.bus, pc=None)
         self.bus.cpu = self.cpu
         self.min_sp = 0xff
@@ -129,3 +130,10 @@ class Machine:
 
     def poke(self, name, value, index=0):
         self.bus.ram[(self.sym[name] + index) & 0x7f] = value
+
+    def call(self, label):
+        """Execute a bank-0 routine directly, returning to the frame checkpoint."""
+        assert self.bus.bank == 0 and self.cpu.pc == self.sym["GameFrame"]
+        self.cpu.stPushWord(self.sym["GameFrame"] - 1)
+        self.cpu.pc = self.sym[label]
+        self.until("GameFrame", 0)

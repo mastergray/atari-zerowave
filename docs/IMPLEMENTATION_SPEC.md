@@ -4,12 +4,14 @@ Implement the game defined in [PORT_OUTLINE.md](PORT_OUTLINE.md) as a native Ata
 
 The first playable build must support two active enemies. The implementation reserves four enemy slots and separates storage capacity from the current level's cap. Three- and four-enemy levels are enabled only after their display schedules pass the tests below. Controls and combat rules are requirements; tuning values are initial defaults that may change through playtesting.
 
-Implementation status: the controls/display prototype for milestones 0 and 1 is
+Implementation status: the two-enemy combat prototype through milestone 2 is
 available. See [build and play instructions](../README.md) and
-[measured kernel timing](KERNEL_TIMING.md). It includes static two-enemy stress
-layouts, a color-cycling beam, and an expanding bomb outline; movement, damage, HP, score, and levels remain future
-work. SELECT cycles test layouts in this prototype only. The sections below
-continue to define the full game target.
+[measured kernel timing](KERNEL_TIMING.md). It includes movement, both enemy types,
+beam/bomb damage, health, score, and start/game-over/restart. Opening difficulty
+is fixed at two enemies, speed 32/256, spawn interval 90, and square weight 1/4.
+Level quotas/transitions and hit/death sound cues remain future work. A separate
+display-test ROM retains the static SELECT layouts. The sections below continue
+to define the full game target; level-specific rules are not enabled yet.
 
 ## Platform and build decisions
 
@@ -219,21 +221,23 @@ Use two sound channels: one sustained beam cue and one prioritized event cue. Ev
 
 ## RAM allocation
 
-The initial map uses the full available address range, with explicit reserve and stack space. Generate symbols and fail the build on overlap.
+The current map uses the full available address range, with explicit reserve and stack space. Generate symbols and fail the build on overlap. Reclaim prototype diagnostics and revise the shared lifetimes when adding level and audio state.
 
 | Address range | Bytes | Allocation |
 | --- | ---: | --- |
 | `$80–$9F` | 32 | Four enemy slots, eight arrays of four bytes |
-| `$A0–$AF` | 16 | Mode, level, quota, HP, two score bytes, mode timer, spawn timer, square timer, RNG, active count, active cap, speed, spawn interval, square weight, spare game byte |
+| `$A0–$AF` | 16 | Layout ID, frame counter, bomb count, mode, HP, two score bytes, spawn timer, square timer, RNG, active count, active cap, speed, spawn interval, square weight, spare |
 | `$B0–$B7` | 8 | Direction, last direction, previous button/reset bits, beam enable, bomb cooldown, bomb-animation timer, bomb event, frame phase |
-| `$B8–$BF` | 8 | Two sound-channel states, four bytes each |
+| `$B8–$BF` | 8 | Two HUD health masks; six bytes reserved for audio |
 | `$C0–$D7` | 24 | Renderer pointers, row bytes, and draw/HUD state |
-| `$D8–$E7` | 16 | Shared scratch for logic, spawning, and schedule construction |
+| `$D8–$E7` | 16 | Ten HUD score row bytes, four status-pointer bytes, draw-age temporary, general temporary; logic scratch aliases the HUD storage during overscan |
 | `$E8–$EF` | 8 | Unallocated margin; guard pattern in debug builds |
 | `$F0–$FF` | 16 | Stack reservation |
 | Total | 128 | Includes stack and margin |
 
 The 24 renderer bytes currently hold four two-byte playfield pointers, a two-byte sprite pointer, selected slot, HUD color, arena color, display-pattern ID, four beam visual bytes (fade timer, frozen hue, draw direction, draw color), a two-byte ball-motion pointer, two ball row bounds, a kernel selector, and one reserved byte. Later sprite reuse must fit or explicitly revise this allocation. Scratch can be reused only across nonoverlapping lifetimes; record clobbered registers and scratch in each routine's header. ROM switching does not preserve a second copy of RAM.
+
+The game commits `PreviousButtons` before render preparation overwrites the sampled-input scratch with HUD rows. Movement/spawn scratch is also dead by then. Persistent health, score, timers, input history, enemy positions and beam state never alias those HUD buffers.
 
 Initialize the stack at `$FF` and keep peak stack consumption within 16 bytes, including nested subroutines and any explicit pushes. Verify the high-water mark in the busiest frame. Increasing storage beyond four slots requires a revised map; it is not enabled by changing only a level row.
 
@@ -243,8 +247,8 @@ F8 selects its lower and upper 4 KiB banks through cartridge hotspots `$1FF8` an
 
 | Bank | Contents |
 | --- | --- |
-| 0 | Reset/init, input, modes, movement, attacks, spawning, scoring, levels, audio updates |
-| 1 | Display preparation, coordinate lookup tables, kernel, beam streams, sprites, font/HUD data |
+| 0 | Reset/init, input, modes, movement and coordinate magnitudes, attacks, spawning, scoring, future levels, audio updates |
+| 1 | Display preparation, kernels, beam streams, sprites, font/HUD data |
 
 Place matching bank-switch trampolines at `$FF80–$FFF7` in both banks, reserve `$FFF8–$FFF9` as hotspots, and put matching vectors at `$FFFA–$FFFF`. Both reset vectors enter a common stub that explicitly selects bank 0, so startup does not depend on the initial bank.
 
@@ -253,30 +257,30 @@ Cross-bank transitions use explicit jump stubs whose next instructions are ident
 ### Planned project files
 
 These are the planned deliverables for the full game; the prototype supplies the
-build, input, display, generation, and cartridge-test subset:
+build, combat, display, generation, and cartridge-test subset:
 
 | Path | Responsibility |
 | --- | --- |
 | `Makefile` | Generate assets, assemble ROM, run checks, launch emulator |
 | `src/main.asm` | Bank layout, includes, vectors, common entry points |
 | `src/ram.inc` and `src/constants.inc` | State allocation and fixed hardware/game constants |
-| `src/input.asm`, `src/game.asm` | Input decoding and mode/update orchestration |
+| `src/input.asm`, `src/game.asm`, `src/play.asm` | Input decoding, frame orchestration and playable mode/update order |
 | `src/enemies.asm`, `src/combat.asm` | Slot pool, spawning, movement, hits, score/quota |
 | `src/audio.asm` | Sound state and event priorities |
-| `src/render.asm`, `src/kernel.asm` | Display schedule, pointer setup, timed screen output |
+| `src/render.asm`, `src/hud.asm`, `src/kernel.asm` | Display schedule, score/status preparation, pointer setup, timed screen output |
 | `config/tuning.json`, `config/levels.json` | Single source for provisional numbers and level rows |
 | `tools/generate_assets.py` | Deterministic geometry, beam, font, and level-table generation |
 | `tools/check_rom.py` | Image size, vectors, bank stubs, RAM layout, table bounds |
-| `tests/test_rules.py` | Host-side rule vectors and generator invariants |
+| `tests/test_combat.py`, `tests/test_prototype.py` | Actual-cartridge rule, timing, input and display tests; generator invariants |
 | `tests/scenarios/` | Deterministic cartridge/debug scenarios and expected state traces |
 | `vendor/dasm/` | Pinned Atari headers/macros and their license/provenance |
 | `build/` | Generated includes, ROM, symbols, listing, and validation reports |
 
-Each assembly routine declares inputs, outputs, register clobbers, scratch use, and its applicable cycle bound. `game.asm` owns update order; `render.asm` consumes state and may change only render caches/diagnostics, never HP, score, enemy movement, or combat outcomes.
+Each assembly routine declares inputs, outputs, register clobbers, scratch use, and its applicable cycle bound. `play.asm` owns combat update order; `game.asm` owns frame entry and the static display-test path. `render.asm` consumes state and may change only render caches/diagnostics, never HP, score, enemy movement, or combat outcomes.
 
 ## Build and verification workflow
 
-`make all` generates tables and produces `build/atari-zerowave.bin`, `.sym`, and `.lst`. The ROM must be exactly 8,192 bytes with deterministic padding. `make check` runs host checks, `make run` launches configured NTSC/F8 Stella, and `make debug` opens the same cartridge with symbols. `make stella-check` runs the automated display scenarios under X11.
+`make all` generates tables and produces `build/atari-zerowave.bin`, `.sym`, and `.lst`, plus the separate `atari-zerowave-display` artifacts compiled with `DISPLAY_TEST=1`. Each ROM must be exactly 8,192 bytes with deterministic padding. `make check` runs host checks, `make run` launches the playable cartridge in configured NTSC/F8 Stella, and `make debug` opens it with symbols. `make run-display` opens the static fixture cartridge. `make stella-check` runs automated scenarios for both under X11.
 
 Pin the assembler/tool inputs and record versions, source revision, validated enemy cap, and ROM checksum in a build report. Fail on unresolved symbols, bank overflow, RAM/stack reservation overlap, missing table entries, or mismatched common stubs. Keep build output disposable and out of the reference checkout.
 

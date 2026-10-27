@@ -1,0 +1,353 @@
+import unittest
+import json
+
+from rom_machine import Machine, ROOT
+import test_prototype as prototype
+
+assets = prototype.assets
+
+MASKS = (1, 9, 8, 10, 2, 6, 4, 5)
+
+
+class CombatTests(unittest.TestCase):
+    assert_rendered_pattern = prototype.CartridgeTests.assert_rendered_pattern
+    assert_ball_pattern = prototype.CartridgeTests.assert_ball_pattern
+    assert_arena_colors_and_sprites = prototype.CartridgeTests.assert_arena_colors_and_sprites
+
+    @classmethod
+    def setUpClass(cls):
+        cls.timings = []
+        cls.stack_bytes = 0
+
+    @classmethod
+    def tearDownClass(cls):
+        report = dict(frames=len(cls.timings), logic_cycles=[min(t[0] for t in cls.timings), max(t[0] for t in cls.timings)],
+                      prepare_cycles=[min(t[1] for t in cls.timings), max(t[1] for t in cls.timings)],
+                      stack_bytes=cls.stack_bytes, cycles_per_frame=19912)
+        (ROOT / "build/combat-timing.json").write_text(json.dumps(report, indent=2) + "\n")
+
+    def game(self, frozen=True):
+        m = Machine()
+        m.boot()
+        self.frame(m, reset=True)
+        if frozen:
+            m.poke("EnemySpeed", 0)
+            m.poke("SpawnTimer", 255)
+        return m
+
+    def frame(self, m, mask=0, **buttons):
+        m.bus.events.clear()
+        self.assertEqual(m.frame(mask, **buttons), 262 * 76)
+        self.assertLess(m.checkpoints[-1][0], 2000)
+        prepare = m.checkpoints[-1][1] - m.bus.vsync_edges[-1] // 76 * 76
+        self.assertLess(prepare, 2400)
+        self.timings.append((m.checkpoints[-1][0], prepare))
+        type(self).stack_bytes = max(self.stack_bytes, 255 - m.min_sp)
+        self.assertEqual(m.bus.ram[0x68:0x70], bytes([0xa5] * 8))
+        self.assertGreaterEqual(m.min_sp, 0xef)
+        self.assertFalse(m.cpu.p & 8, "Decimal mode leaked out of score routine")
+
+    def enemy(self, m, slot, lane, radius, square=False, fraction=0):
+        m.poke("EnemyFlags", 0x80 | (0x40 if square else 0) | lane, slot)
+        m.poke("EnemyRadiusHi", radius, slot)
+        m.poke("EnemyRadiusLo", fraction, slot)
+        m.poke("EnemyAge", 0, slot)
+
+    def score(self, m):
+        hi, lo = m.value("ScoreHi"), m.value("ScoreLo")
+        return (hi >> 4) * 1000 + (hi & 15) * 100 + (lo >> 4) * 10 + (lo & 15)
+
+    def test_power_on_waits_for_a_fresh_start_from_either_bank(self):
+        for bank in (0, 1):
+            m = Machine(bank)
+            m.bus.fire = 0  # held across power-on
+            m.boot()
+            for _ in range(4):
+                self.frame(m, 8, fire=True)
+                self.assertEqual(m.value("GameMode"), 0)
+                self.assertEqual(m.value("BeamEnabled"), 0)
+                self.assertEqual(m.value("ActiveCount"), 0)
+            self.frame(m)
+            self.frame(m, 8, fire=True)
+            self.assertEqual(m.value("GameMode"), 1)
+            self.assertEqual(m.value("Health"), 5)
+            self.assertEqual(m.value("BombCount"), 0)
+            self.assertEqual(m.value("BeamEnabled"), 0)
+            self.assertEqual(m.value("SpawnTimer"), 90)
+            self.frame(m, 8, fire=True)
+            self.assertEqual(m.value("BeamEnabled"), 1)
+            self.assertEqual(m.value("BombCount"), 0)
+
+    def test_beam_pierces_triangles_but_not_squares_or_other_lanes(self):
+        for lane, mask in enumerate(MASKS):
+            m = self.game()
+            self.enemy(m, 0, lane, 45, square=True)
+            self.enemy(m, 1, lane, 55)
+            self.frame(m, mask)
+            self.assertEqual(m.value("EnemyFlags", 0), 0xc0 | lane)
+            self.assertEqual(m.value("EnemyFlags", 1), 0)
+            self.assertEqual(self.score(m), 10)
+            self.enemy(m, 1, (lane + 1) & 7, 50)
+            self.frame(m, mask)
+            self.assertTrue(m.value("EnemyFlags", 1) & 0x80)
+        m = self.game()
+        for slot in (0, 1):
+            self.enemy(m, slot, 2, 40 + slot * 10)
+        self.frame(m, 8)
+        self.assertEqual(m.value("ActiveCount"), 0)
+        self.assertEqual(self.score(m), 20)
+
+    def test_release_afterglow_does_not_damage(self):
+        m = self.game()
+        self.frame(m, 9)
+        self.enemy(m, 0, 1, 40)
+        for _ in range(15):
+            self.frame(m)
+            self.assertEqual(self.score(m), 0)
+            self.assertTrue(m.value("EnemyFlags") & 0x80)
+        self.frame(m, 9)
+        self.assertEqual(self.score(m), 10)
+
+    def test_bomb_fixed_point_boundary_and_fill_cue(self):
+        for square in (False, True):
+            m = self.game()
+            self.enemy(m, 0, 2, 24, square=square)
+            self.enemy(m, 1, 6, 24, square=square, fraction=1)
+            self.frame(m, fire=True)
+            self.assertEqual(m.value("EnemyFlags", 0), 0)
+            self.assertTrue(m.value("EnemyFlags", 1) & 0x80)
+            self.assertEqual(self.score(m), 25 if square else 10)
+            if square:
+                self.assertEqual(m.value("EnemySprite", 1), m.sym["SpriteSquare"] >> 8)
+            m.poke("EnemyRadiusLo", 0, 1)
+            self.frame(m, fire=True)
+            self.assertTrue(m.value("EnemyFlags", 1) & 0x80, "Ring must not deal later damage")
+            if square:
+                self.assertEqual(m.value("EnemySprite", 1), m.sym["SpriteSquareReady"] >> 8)
+
+    def test_bomb_and_beam_award_each_kill_once_before_contact(self):
+        m = self.game()
+        self.enemy(m, 0, 2, 8)
+        self.enemy(m, 1, 6, 8, square=True)
+        self.frame(m, 8, fire=True)
+        self.assertEqual(self.score(m), 35)
+        self.assertEqual(m.value("Health"), 5)
+        self.assertEqual(m.value("ActiveCount"), 0)
+        self.frame(m, 8, fire=True)
+        self.assertEqual(self.score(m), 35)
+
+    def test_contacts_saturate_health_and_keep_same_frame_kills(self):
+        m = self.game()
+        m.poke("Health", 1)
+        for slot in (0, 1):
+            self.enemy(m, slot, slot, 8, square=True)
+        self.frame(m)
+        self.assertEqual(m.value("Health"), 0)
+        self.assertEqual(m.value("GameMode"), 2)
+        self.assertEqual(self.score(m), 0)
+        m = self.game()
+        m.poke("Health", 1)
+        self.enemy(m, 0, 0, 8, square=True)
+        self.enemy(m, 1, 2, 40)
+        self.frame(m, 8)
+        self.assertEqual(m.value("GameMode"), 2)
+        self.assertEqual(self.score(m), 10)
+        self.assertEqual(m.value("BeamEnabled"), 0)
+
+    def test_movement_borrow_saturation_and_exact_contact(self):
+        m = self.game()
+        m.poke("EnemySpeed", 32)
+        self.enemy(m, 0, 2, 25, fraction=0, square=True)
+        self.frame(m)
+        self.assertEqual((m.value("EnemyRadiusHi"), m.value("EnemyRadiusLo")), (24, 224))
+        self.enemy(m, 0, 2, 8, fraction=33, square=True)
+        self.frame(m)
+        self.assertTrue(m.value("EnemyFlags") & 0x80)
+        self.assertEqual(m.value("Health"), 5)
+        self.enemy(m, 0, 2, 8, fraction=32, square=True)
+        self.frame(m)
+        self.assertEqual(m.value("EnemyFlags"), 0)
+        self.assertEqual(m.value("Health"), 4)
+        self.enemy(m, 0, 2, 0, fraction=1, square=True)
+        self.frame(m)
+        self.assertEqual((m.value("EnemyRadiusHi"), m.value("EnemyRadiusLo")), (0, 0))
+
+    def test_cartridge_positions_match_all_lanes_and_radii(self):
+        m = self.game()
+        tuning = assets.load_config()
+        for lane in range(8):
+            for radius in range(64):
+                self.enemy(m, 3, lane, radius)
+                m.cpu.x = 3
+                m.call("PositionEnemy")
+                x, y = assets.center(lane, radius, tuning)
+                self.assertEqual((m.value("EnemyX", 3), m.value("EnemyY", 3)), (x - 4, y - 2))
+
+    def test_bcd_score_carries_saturates_and_clears_decimal_mode(self):
+        m = self.game()
+        for start, award, expected in ((0, 10, 10), (75, 25, 100), (990, 25, 1015),
+                                       (9975, 25, 9999), (9990, 10, 9999), (9999, 25, 9999)):
+            m.poke("ScoreHi", int(f"{start:04}"[:2], 16))
+            m.poke("ScoreLo", int(f"{start:04}"[2:], 16))
+            m.cpu.a = 0x10 if award == 10 else 0x25
+            m.call("AwardScore")
+            self.assertEqual(self.score(m), expected)
+            self.assertFalse(m.cpu.p & 8)
+
+    def test_lfsr_visits_every_nonzero_state(self):
+        m = self.game()
+        seen = set()
+        for _ in range(255):
+            m.call("NextRandom")
+            seen.add(m.value("RandomState"))
+        self.assertEqual(seen, set(range(1, 256)))
+        self.assertEqual(m.value("RandomState"), 0xa5)
+
+    def test_spawns_do_not_move_or_die_in_their_creation_update(self):
+        m = self.game(False)
+        m.poke("SpawnTimer", 1)
+        # Seed $a5 selects lane E for the first triangle.
+        self.frame(m, 8)
+        self.assertEqual(m.value("EnemyFlags"), 0x82)
+        self.assertEqual((m.value("EnemyRadiusHi"), m.value("EnemyRadiusLo")), (63, 0))
+        self.assertEqual(self.score(m), 0)
+        self.frame(m, 8)
+        self.assertEqual(m.value("EnemyFlags"), 0)
+        self.assertEqual(self.score(m), 10)
+
+    def test_spawn_cap_distinct_lanes_and_square_spacing(self):
+        m = self.game()
+        m.poke("SpawnTimer", 0)
+        m.poke("SpawnInterval", 1)
+        m.poke("SquareWeight", 4)
+        m.poke("ActiveCap", 4)  # storage capacity must not bypass display cap
+        for _ in range(20):
+            self.frame(m)
+            active = [m.value("EnemyFlags", s) for s in range(4) if m.value("EnemyFlags", s) & 0x80]
+            self.assertLessEqual(len(active), 2)
+            self.assertEqual(len({v & 7 for v in active}), len(active))
+        self.assertEqual(len(active), 2)
+        squares = []
+        for t in range(150):
+            for slot in range(4):
+                m.poke("EnemyFlags", 0, slot)
+            self.frame(m)
+            if m.value("EnemyFlags") & 0x40:
+                squares.append(t)
+        self.assertGreaterEqual(len(squares), 2)
+        self.assertTrue(all(b - a >= 72 for a, b in zip(squares, squares[1:])))
+
+    def test_game_over_freezes_and_restart_consumes_button_edge(self):
+        m = self.game()
+        m.poke("Health", 1)
+        m.poke("ScoreLo", 0x75)
+        self.enemy(m, 0, 0, 8, square=True)
+        self.frame(m)
+        for _ in range(5):
+            self.frame(m, 8)
+            self.assertEqual(m.value("GameMode"), 2)
+            self.assertEqual(self.score(m), 75)
+            self.assertEqual(m.value("BeamEnabled"), 0)
+        self.frame(m, 8, fire=True)
+        self.assertEqual(m.value("GameMode"), 1)
+        self.assertEqual(m.value("Health"), 5)
+        self.assertEqual(self.score(m), 0)
+        self.assertEqual(m.value("BombCount"), 0)
+        self.frame(m, fire=True)
+        self.assertEqual(m.value("BombCount"), 0)
+        self.frame(m)
+        self.frame(m, fire=True)
+        self.assertEqual(m.value("BombCount"), 1)
+        self.frame(m, fire=True, reset=True)
+        self.assertEqual(m.value("BombCount"), 0)
+
+    def test_combat_bomb_cooldown_is_exact_and_select_has_no_effect(self):
+        m = self.game()
+        self.frame(m, fire=True)
+        for _ in range(58):
+            self.frame(m, select=True)
+        self.frame(m, fire=True)  # t+59: too early
+        self.assertEqual(m.value("BombCount"), 1)
+        self.frame(m)  # t+60, no fresh press
+        self.frame(m, fire=True)
+        self.assertEqual(m.value("BombCount"), 2)
+        self.assertEqual(m.value("LayoutId"), 0)
+        self.assertEqual(m.value("ActiveCount"), 0)
+        m = self.game()
+        self.frame(m, fire=True)
+        for _ in range(59):
+            self.frame(m)
+        self.frame(m, fire=True)  # t+60: accepted
+        self.assertEqual(m.value("BombCount"), 2)
+
+    def test_playable_rom_preserves_rays_fade_and_sprite_timing(self):
+        m = self.game()
+        for slot, lane in enumerate((0, 4)):
+            self.enemy(m, slot, lane, 40, square=True)
+        for mask in MASKS:
+            self.frame(m, mask)
+            self.assert_rendered_pattern(m, m.value("DisplayPattern"))
+            self.assert_arena_colors_and_sprites(m)
+        for _ in range(17):
+            self.frame(m, fire=True)
+            self.assert_rendered_pattern(m, m.value("DisplayPattern"))
+            self.assert_arena_colors_and_sprites(m)
+
+    def test_hud_raster_displays_bcd_digits_and_health(self):
+        m = self.game()
+        for hp in range(6):
+            for score in (0, 1, 1234, 9876, 9999):
+                m.poke("GameMode", 1)
+                m.poke("Health", hp)
+                m.poke("ScoreHi", int(f"{score:04}"[:2], 16))
+                m.poke("ScoreLo", int(f"{score:04}"[2:], 16))
+                self.frame(m)
+                origin = m.bus.vsync_edges[-1] // 76 * 76
+                for line in range(10):
+                    row = line // 2
+                    cells = {4 + digit * 4 + bit for digit, value in enumerate(f"{score:04}")
+                             for bit in range(3) if assets.DIGITS[int(value)][row] & (4 >> bit)}
+                    cells.update(24 + i * 3 for i in range(hp))
+                    planes = assets.encode_row(cells)
+                    expected = [(12, 0x0e, planes[1]), (19, 0x0f, planes[2]),
+                                (43, 0x0e, planes[4]), (53, 0x0f, planes[5])]
+                    writes = [(cy % 76, reg, value) for cy, reg, value in m.bus.events
+                              if (cy - origin) // 76 == 42 + line and reg in (0x0e, 0x0f)]
+                    self.assertEqual(writes, expected, (score, hp, line))
+
+    def test_scripted_survival_keeps_two_enemies_visible_and_timing_stable(self):
+        m = self.game(False)
+        kinds, awards = set(), set()
+        previous_score = 0
+        for _ in range(1400):
+            active = [s for s in range(4) if m.value("EnemyFlags", s) & 0x80]
+            mask = 0
+            bomb = False
+            for slot in active:
+                flags = m.value("EnemyFlags", slot)
+                kinds.add(bool(flags & 0x40))
+                if flags & 0x40:
+                    radius = m.value("EnemyRadiusHi", slot) * 256 + m.value("EnemyRadiusLo", slot)
+                    bomb |= radius <= 24 * 256 and m.value("BombCooldown") == 0
+                else:
+                    mask = MASKS[flags & 7]
+            self.frame(m, mask, fire=bomb)
+            active = [s for s in range(4) if m.value("EnemyFlags", s) & 0x80]
+            self.assertLessEqual(len(active), 2)
+            self.assertEqual(len({m.value("EnemyFlags", s) & 7 for s in active}), len(active))
+            for slot in active:
+                self.assertLessEqual(m.value("EnemyAge", slot), 1)
+                self.assertTrue(0 <= m.value("EnemyX", slot) <= 152)
+                self.assertTrue(0 <= m.value("EnemyY", slot) <= 76)
+            score = self.score(m)
+            if score > previous_score:
+                awards.add(score - previous_score)
+            previous_score = score
+        self.assertEqual(kinds, {False, True})
+        self.assertTrue({10, 25} <= awards)
+        self.assertEqual(m.value("Health"), 5)
+        self.assertEqual(m.value("GameMode"), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

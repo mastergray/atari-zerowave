@@ -1,6 +1,6 @@
 # Zero Swarm → Atari 2600: cuts for a playable version
 
-Reviewed 2026-10-26 against `../res`, commit `fb68a689d3fa6346696dd2310e5dd3d167c065a1`. The controls/display prototype is now implemented; [kernel measurements](KERNEL_TIMING.md) record its timing and remaining limits.
+Reviewed 2026-10-26 against `../res`, commit `fb68a689d3fa6346696dd2310e5dd3d167c065a1`. The two-enemy combat prototype is now implemented; [kernel measurements](KERNEL_TIMING.md) record its timing and remaining limits.
 
 The [implementation specification](IMPLEMENTATION_SPEC.md) defines the native code architecture, game rules, level data, resource budgets, and acceptance tests for this baseline.
 
@@ -106,7 +106,9 @@ The checkout is an attack-effects prototype. These source references distinguish
 | [enemy_registry.json](../res/data/enemy_registry.json) and [difficulty_scaling.json](../res/data/difficulty_scaling.json) | Empty enemy definitions, difficulty tiers, and spawn weights. |
 | [project.structure.md](../res/docs/project.structure.md) and [data.structure.md](../res/docs/data.structure.md) | Intended triangles, squares, shifters, reflectors, and progression systems; several listed scripts/scenes do not exist. |
 
-The port would reuse the attack concept and visual identity. Enemy behavior, hit detection, scoring, and game-over logic still need implementation. Godot drawing, scene management, and tween code would be replaced with a small native game loop.
+The port reuses the attack concept and visual identity. Its enemy behavior, hit
+detection, scoring, and game-over logic are new native code. Godot drawing, scene
+management, and tween code are replaced by the cartridge's game loop and kernels.
 
 ## What to prove before expanding scope
 
@@ -119,4 +121,8 @@ If this version does not fit cleanly, cut in this order: decorative indicators a
 
 Preserve the eight-way beam and bomb button throughout those experiments. After testing the accepted ring/beam experiment and completing the reduced game, prioritize higher enemy counts for later levels before further visual effects. Charge bombs, sweep effects, shifters, reflectors, XP, and weapon upgrades remain outside the initial scope; level progression is included.
 
-The prototype meets emulator timing for two static enemies and simultaneous beam/bomb feedback. Movement and combat still need implementation; hardware readability and later-level enemy counts remain to be validated.
+The playable prototype now implements two approaching enemies, both enemy types,
+beam/bomb damage, health, score, and restart with stable emulator timing. It uses
+fixed opening difficulty. Level progression, hardware readability, and later-level
+enemy counts remain to be validated. The earlier static display fixtures remain
+available in a separate diagnostic ROM.

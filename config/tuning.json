@@ -13,6 +13,12 @@
   "bomb_sound_frames": 6,
   "beam_colors": [14, 174, 142, 110, 78, 46, 206, 222],
   "beam_fade_start": 15,
+  "start_hp": 5,
+  "enemy_cap": 2,
+  "enemy_speed": 32,
+  "spawn_interval": 90,
+  "square_weight": 1,
+  "square_spawn_gap": 72,
   "colors": {
     "turret": 14,
     "triangle": 206,

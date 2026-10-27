@@ -1,7 +1,11 @@
     processor 6502
+    IFNCONST DISPLAY_TEST
+DISPLAY_TEST = 0
+    ENDIF
     include "vcs.h"
     include "ram.inc"
     include "tuning.inc"
+    include "constants.inc"
 
 ; Every bank has matching jump trampolines and vectors. No cross-bank returns.
     MAC COMMON_BANK_TAIL
@@ -21,7 +25,11 @@ LogicEntry   = $ff8c
     RORG $f000
     include "game.asm"
     include "input.asm"
+    include "play.asm"
+    include "enemies.asm"
+    include "combat.asm"
     include "fixtures.inc"
+    include "movement.inc"
 Bank0End = *
     IF Bank0End > $ff80
         ERR
@@ -37,6 +45,9 @@ Bank0End = *
     ORG $1000
     RORG $f000
     include "render.asm"
+    IF DISPLAY_TEST = 0
+    include "hud.asm"
+    ENDIF
     include "kernel.asm"
     include "graphics.inc"
 Bank1End = *

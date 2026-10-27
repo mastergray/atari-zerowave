@@ -22,11 +22,21 @@ Reset:
     sta GuardStart,x
     dex
     bpl .guards
+    IF DISPLAY_TEST
     jsr LoadFixture
+    ELSE
+    jsr StartRun
+    lda #MODE_TITLE
+    sta GameMode
+    ENDIF
     jsr SampleInput
     lda CurrentButtons
     sta PreviousButtons
+    IF DISPLAY_TEST
     jsr UpdateBeamVisual
+    ELSE
+    jsr ClearWeapons
+    ENDIF
     lda #2
     sta VBLANK
     jmp DisplayEntry
@@ -37,7 +47,11 @@ GameFrame:
     SUBROUTINE
     lda #34
     sta TIM64T
+    IF DISPLAY_TEST
     jsr UpdatePrototype
+    ELSE
+    jsr UpdateGame
+    ENDIF
 LogicDone:
 .wait:
     lda INTIM
@@ -101,6 +115,11 @@ UpdatePrototype:
     lda CurrentButtons
     sta PreviousButtons
     jsr UpdateBeamVisual
+    jmp UpdateAudio
+
+; A clobbered, no scratch; two independent attack channels, under 70 cycles.
+UpdateAudio:
+    SUBROUTINE
     ; Minimal attack feedback; no music/event queue.
     lda #4
     sta AUDC0

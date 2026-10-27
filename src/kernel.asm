@@ -1,5 +1,6 @@
 ; HUD row 0 is blank. Rows 1..23 are drawn here with independent PF halves.
 HudLoop:
+    IF DISPLAY_TEST
     sta WSYNC
     lda HudPlane0,y
     sta PF0               ; cycle 7
@@ -21,6 +22,67 @@ HudLoop:
     iny
     cpy #24
     bne HudLoop
+    ELSE
+    sta WSYNC             ; blank HUD line 1
+    ldy #0
+    MAC SCORE_SCANLINE
+    lda #COLOR_TURRET
+    sta COLUPF            ; 5
+    lda HudScoreLeft,y
+    sta PF1               ; 12
+    lda HudScoreRight,y
+    sta PF2               ; 19
+    REPEAT 9
+    nop
+    REPEND
+    lda HudHealth1
+    sta PF1               ; 43
+    lda HudHealth2
+    nop
+    nop
+    sta PF2               ; 53
+    ENDM
+ScoreHudLoop:
+    sta WSYNC             ; lines 2..11, five doubled score/health rows
+    SCORE_SCANLINE
+    sta WSYNC
+    SCORE_SCANLINE
+    iny
+    cpy #5
+    bne ScoreHudLoop
+    lda #0
+    sta WSYNC             ; line 12
+    sta PF1
+    sta PF2
+    sta WSYNC             ; line 13
+    ldy #0
+    MAC STATUS_SCANLINE
+    lda #COLOR_TURRET
+    sta COLUPF            ; 5
+    lda (HudStatus1),y
+    sta PF1               ; 13
+    lda (HudStatus2),y
+    sta PF2               ; 21
+    lda BombHud1,y
+    REPEAT 6
+    nop
+    REPEND
+    sta PF1               ; 40
+    lda HudColor
+    nop
+    sta COLUPF            ; 48, right half's bomb-ready color
+    lda BombHud2,y
+    sta PF2               ; 55
+    ENDM
+StatusHudLoop:
+    sta WSYNC             ; lines 14..23, FIRE / PLAY / OVER and BOMB
+    STATUS_SCANLINE
+    sta WSYNC
+    STATUS_SCANLINE
+    iny
+    cpy #5
+    bne StatusHudLoop
+    ENDIF
     ldx #8
 SeparatorLoop:
     sta WSYNC

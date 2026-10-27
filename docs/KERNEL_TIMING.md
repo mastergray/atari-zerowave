@@ -1,26 +1,27 @@
 # Prototype kernel timing
 
-This records the controls/display prototype, corresponding to implementation
-milestones 0 and 1. Measurements were taken from the assembled F8 ROM with the
-py65 harness and Stella 6.0.2. They do not certify television readability or
-unfinished combat paths.
+This records the playable two-enemy combat prototype through milestone 2 and
+the separate static display-test ROM. Measurements were taken from the assembled
+F8 cartridges with the py65 harness and Stella 6.0.2. They do not certify
+television readability or the future level and larger-enemy-count paths.
 
 ## Frame layout
 
 | Region | Scanlines | Work |
 | --- | ---: | --- |
 | VSYNC | 3 | Vertical synchronization |
-| VBLANK | 37 | Beam/ring pointers, enemy selection and positioning |
-| HUD | 24 | TEST/BOMB labels and cooldown color |
+| VBLANK | 37 | HUD preparation, beam/ring pointers, enemy selection and positioning |
+| HUD | 24 | Four score digits, five health marks, FIRE/PLAY/OVER and BOMB |
 | Separator | 8 | Clear HUD graphics; prepare arena |
 | Arena | 160 | 80 logical rows, each drawn twice |
-| Overscan | 30 | Sample input, update bomb/fade state, select fixtures and sound |
+| Overscan | 30 | Input, movement, attacks, contacts, spawning, beam/fade and sound |
 | Total | 262 | 19,912 CPU cycles at 76 cycles per line |
 
 Stella's `_cycleslo` increases by 19,912 per frame across direction changes,
-all animation frames, fixture loads, and cooldown waits.
-The host harness checks 262-line frames through button/cooldown tests and all
-eleven layouts. Both possible F8 startup banks enter the same reset path.
+all animation frames, combat, spawning, start/restart, and cooldown waits.
+The host harness checks 262-line frames through a scripted survival run and
+boundary fixtures. The diagnostic ROM also exercises all eleven static layouts.
+Both possible F8 startup banks enter the same reset path.
 
 The RIOT timer starts with a partial first interval: its first decrement occurs
 after one CPU cycle. With this entry path, `TIM64T=43` during blanking and `34`
@@ -28,6 +29,24 @@ during overscan leave the polling loop in the intended final WSYNC window.
 These constants depend on instruction placement and entry timing. A full-interval
 timer model incorrectly accepted a 260-line earlier build; the harness now
 models the behavior in [Stella's RIOT implementation](https://github.com/stella-emu/stella/blob/6.0.2/src/emucore/M6532.cxx).
+
+## Playable HUD
+
+HUD lines 0–1 and 12–13 are blank. Lines 2–11 display four score digits on the
+left and health marks on the right; lines 14–23 display FIRE, PLAY or OVER on
+the left and the colored BOMB label on the right. Each font row lasts two lines.
+The diagnostic ROM retains its TEST/BOMB header.
+
+| Region | Left PF1 / PF2 completion | Right PF1 / PF2 completion | Color |
+| --- | --- | --- | --- |
+| Score and health | Cycles 12 / 19 | Cycles 43 / 53 | White at cycle 5 |
+| Status and bomb | Cycles 13 / 21 | Cycles 40 / 55 | White at 5, bomb-ready color at 48 |
+
+PF0 remains clear. Render preparation converts packed BCD into ten score-row
+bytes and selects two status pointers. These occupy `$D8–$E5` only during
+display; input and spawn scratch can reuse them during overscan after the last
+visible line. The input history is committed before HUD preparation overwrites
+the samples. Health masks use two previously reserved audio bytes.
 
 ## Arena scanline schedule
 
@@ -142,15 +161,16 @@ eight-way implementation uses the ball and horizontal playfield rays.
 
 Four renderer bytes store `BeamFadeTimer`, `BeamFadeHue`, `BeamDrawDirection`,
 and `BeamDrawColor`. `Direction` and `BeamEnabled` still become neutral/zero
-immediately on release, and the beam sound stops. Future combat must use those
-input fields, never the cosmetic draw direction. The render bank consumes the
+immediately on release, and the beam sound stops. Combat uses those input fields,
+never the cosmetic draw direction. The render bank consumes the
 prepared color and direction for either arena kernel.
 
 This is display-only scheduling: `BeamEnabled` and the beam sound remain active
 while a direction is held, even on its omitted frames. `BombEvent` pulses once
-on acceptance for future immediate damage; it is not repeated for ring stages.
+on acceptance for immediate damage; it is not repeated for ring stages.
 The bomb sound decays over six updates independently of the longer animation.
-Cooldown remains 60 updates. No damage rules are implemented in this prototype.
+Cooldown remains 60 updates. Bomb damage and the square fill cue both compare
+the full 8.8 radius: `24.00` is inside, `24.01` is outside.
 
 The ring uses the playfield kernel and player graphics are written on both
 phases. Enemy draw ages do not depend on effect phase, so two enemies still
@@ -160,21 +180,25 @@ appear every other frame. No extra flicker phase is added for enemies.
 
 | Resource | Current measurement |
 | --- | --- |
-| Bank 0 end / room before trampoline | `$F1DA` / 3,494 bytes |
-| Bank 1 end / room before trampoline | `$FC78` / 776 bytes |
+| Bank 0 end / room before trampoline | `$F530` / 2,640 bytes |
+| Bank 1 end / room before trampoline | `$FD6D` / 531 bytes |
 | Cartridge | 8,192 bytes, identical bank tails and vectors |
 | RAM | Fixed 128-byte map, including reserves and stack |
-| Stack | Four bytes observed; 16 reserved |
+| Stack | Six bytes observed; 16 reserved |
 | Guard | Eight bytes at `$E8–$EF`, intact in tested runs |
-| Update cost | 224–616 cycles from `GameFrame` to `LogicDone` |
-| Render preparation done | 850–926 cycles from VSYNC line start |
+| Update cost | 250–1,097 cycles from `GameFrame` to `LogicDone` |
+| Render preparation done | 1,382–1,534 cycles from VSYNC line start |
 
-The cost samples cover 374 frames: all 16 direction combinations with button up/
-down in all eleven layouts, plus SELECT edges. They include fixture loads but
-exclude future movement, combat, score, and spawning. Re-measure after adding
-those paths. The renderer bank's 776-byte remaining space requires budgeting
-coordinate and future HUD tables; raw per-lane X/Y arrays will not fit unchanged.
-Future coordinate data may need compression or relocation to the logic bank.
+The combat suite records 1,848 frame samples in `build/combat-timing.json`,
+including a 1,400-frame survival run, movement/attack/contact boundaries, scoring,
+spawning, HUD values, and restart. Tests enforce the 2,000-cycle update and
+2,400-cycle preparation limits. The static diagnostic build has 2,644 bytes free
+in bank 0 and 776 in bank 1.
+
+Four 64-byte magnitude tables live in bank 0. Cardinal/diagonal signs reconstruct
+all eight lanes there; cached sprite coordinates cross into the render bank.
+This preserves its remaining space for later HUD/display work. Level state,
+new audio envelopes and sprite reuse still require fresh RAM/timing budgets.
 
 ## Display limits and evidence
 
@@ -184,7 +208,7 @@ two targets alternate without starvation. Four slots are reserved, but the
 prototype supports only two active targets. Cycling three or four targets through
 this same whole-frame slot would exceed the accepted omission limit.
 
-`make stella-check` records both phases of same-height, center-convergence, and
+`make stella-check` runs both ROMs. The diagnostic pass records both phases of same-height, center-convergence, and
 separated-height pairs. Its SELECT fixture injection temporarily drives only the
 RIOT port-B SELECT bit; the ROM still performs its normal switch sampling and
 edge detection. The command transcript documents that setup. Short log chunks
@@ -192,7 +216,7 @@ avoid Stella 6's corrupt session export after its prompt history wraps; they
 are combined into `session.txt`. Debugger `frame`
 stops at VSYNC, so animation captures wait for a complete newly drawn frame.
 
-The 56 Stella snapshots cover both phases of all eight rays, neutral, every bomb
+The 56 diagnostic Stella snapshots cover both phases of all eight rays, neutral, every bomb
 animation frame, target placement during the largest ring, and the complete
 release fade. Pixel comparisons found left/right rays, neutral, and all eleven
 ring captures identical to the previous release-fade build. Both phases of all
@@ -201,6 +225,11 @@ with sprite pixels preserved. The NW ray occupies 92 screenshot pixels, down
 from 464, and retains one uniform hue during its fade. Cartridge tests also
 check ball-motion timing, clearing player motion, release in all eight directions
 and hues, re-aiming, reset, and fading during bombs with two enemies.
+The playable pass adds 18 snapshots of natural spawns/movement, both phases of a
+two-enemy scene, triangle kills, square immunity, bomb-radius boundaries,
+game-over/restart and representative HUD values. Its debugger state confirms
+score awards and start/reset input handling. It uses explicit RAM fixtures only
+for boundary cases, after first exercising natural spawning and movement.
 Real hardware
 flicker and audio remain untested. Advancing
 to three enemies requires vertical sprite reuse and new timing/visibility

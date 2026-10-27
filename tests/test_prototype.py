@@ -71,7 +71,7 @@ class AssetTests(unittest.TestCase):
 
 class CartridgeTests(unittest.TestCase):
     def machine(self, bank=1):
-        machine = Machine(bank)
+        machine = Machine(bank, diagnostic=True)
         machine.boot()
         return machine
 
@@ -344,7 +344,8 @@ class CartridgeTests(unittest.TestCase):
         kind = machine.value("EnemyFlags", selected) if selected != 255 else 0
         shape = [0x18, 0x3c, 0x7e, 0xff]
         if kind & 0x40:
-            shape = [0x7e] * 4 if machine.value("EnemyRadiusHi", selected) <= 24 else [0x7e, 0x42, 0x42, 0x7e]
+            radius = machine.value("EnemyRadiusHi", selected) * 256 + machine.value("EnemyRadiusLo", selected)
+            shape = [0x7e] * 4 if radius <= 24 * 256 else [0x7e, 0x42, 0x42, 0x7e]
         writes = []
         color = None
         for cycle, register, value in machine.bus.events:

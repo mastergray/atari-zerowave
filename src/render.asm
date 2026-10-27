@@ -37,6 +37,9 @@ PrepareDone:
 ; Age selection is independent of slot parity, so a freed slot cannot starve another.
 PrepareRender:
     SUBROUTINE
+    IF DISPLAY_TEST = 0
+    jsr PrepareHud
+    ENDIF
     lda FrameCounter
     and #1
     sta FramePhase
@@ -135,8 +138,12 @@ PrepareRender:
     lda #COLOR_SQUARE
     sta COLUP1
     lda EnemyRadiusHi,x
-    cmp #BOMB_RADIUS+1
-    bcs .triangle
+    cmp #BOMB_RADIUS
+    bcc .filled
+    bne .triangle
+    lda EnemyRadiusLo,x
+    bne .triangle
+.filled:
     lda #>SpriteSquareReady
     sta EnemySprite+1
 .triangle:
