@@ -40,6 +40,12 @@ def load_config():
     return json.loads((ROOT / "config/tuning.json").read_text())
 
 
+def load_sounds():
+    # Ordered from lowest to highest priority; each segment is
+    # [updates, AUDC waveform, AUDF divider, AUDV volume].
+    return json.loads((ROOT / "config/audio.json").read_text())["sounds"]
+
+
 def center(lane, radius, tuning):
     angle = lane * math.pi / 4
     return (
@@ -202,6 +208,28 @@ def generate():
     for name, value in tuning["colors"].items():
         constants.append(f"COLOR_{name.upper()} = ${value:02x}")
     constants.append(f"FIXTURE_COUNT = {len(fixtures)}")
+    sounds = load_sounds()
+    assert [s["name"] for s in sounds] == ["bomb", "immune", "hit", "kill", "player_hit", "death"]
+    samples = [(0, 0, 0)]  # zero index is silence
+    offsets, lengths = [0], [0]
+    for sound_id, sound in enumerate(sounds, 1):
+        sequence = []
+        for frames, control, frequency, volume in sound["segments"]:
+            assert all(isinstance(v, int) for v in (frames, control, frequency, volume))
+            assert frames > 0 and 0 <= control <= 15 and 0 <= frequency <= 31 and 1 <= volume <= 15
+            sequence.extend([(control, frequency, volume)] * frames)
+        assert 0 < len(sequence) <= 255
+        offsets.append(len(samples) - 1)
+        lengths.append(len(sequence))
+        samples.extend(reversed(sequence))  # timer counts down
+        constants.append(f"SFX_{sound['name'].upper()} = {sound_id}")
+    assert len(samples) <= 256, "Audio tables use one-byte indices"
+    assert lengths[1] == tuning["bomb_sound_frames"]
+    audio = ["; Generated from config/audio.json; one sample per game update.\n",
+             byte_lines("SoundOffset", offsets), byte_lines("SoundLength", lengths)]
+    for index, name in enumerate(("Control", "Frequency", "Volume")):
+        audio.append(byte_lines("Sound" + name, [sample[index] for sample in samples]))
+    (OUT / "audio.inc").write_text("".join(audio))
     (OUT / "tuning.inc").write_text("\n".join(constants) + "\n")
     type_tables = []
     for label, key in (("TypeHealth", "health"), ("TypeSpeed", "speed"), ("TypeDamage", "damage"),

@@ -1,6 +1,7 @@
 PYTHON ?= python3
 DASM ?= .tools/dasm-src/src/dasm
 STELLA ?= stella
+STELLA_AUDIO ?= -audio.enabled 1
 ROM := build/atari-zerowave.bin
 DISPLAY_ROM := build/atari-zerowave-display.bin
 GENERATED := build/generated/assets.stamp
@@ -12,7 +13,7 @@ all: $(ROM) $(DISPLAY_ROM)
 bootstrap:
 	$(PYTHON) tools/bootstrap.py
 
-$(GENERATED): tools/generate_assets.py config/tuning.json config/fixtures.json
+$(GENERATED): tools/generate_assets.py config/tuning.json config/fixtures.json config/audio.json
 	$(PYTHON) tools/generate_assets.py
 
 $(ROM): $(SOURCE) $(GENERATED)
@@ -32,13 +33,13 @@ check: all
 test: check
 
 run: all
-	$(STELLA) -type F8 -format NTSC -lc JOYSTICK -rc JOYSTICK -tv.phosphor byrom -pp NO $(ROM)
+	$(STELLA) $(STELLA_AUDIO) -type F8 -format NTSC -lc JOYSTICK -rc JOYSTICK -tv.phosphor byrom -pp NO $(ROM)
 
 debug: all
-	$(STELLA) -debug -type F8 -format NTSC -lc JOYSTICK $(ROM)
+	$(STELLA) $(STELLA_AUDIO) -debug -type F8 -format NTSC -lc JOYSTICK $(ROM)
 
 run-display: $(DISPLAY_ROM)
-	$(STELLA) -type F8 -format NTSC -lc JOYSTICK -pp NO $(DISPLAY_ROM)
+	$(STELLA) $(STELLA_AUDIO) -type F8 -format NTSC -lc JOYSTICK -pp NO $(DISPLAY_ROM)
 
 stella-check: all
 	$(PYTHON) tools/verify_stella.py

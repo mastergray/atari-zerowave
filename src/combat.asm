@@ -68,6 +68,8 @@ ResolveCombat:
     sta Health
     lda #PLAYER_HIT_FRAMES
     sta PlayerHitTimer     ; repeated contacts in this update share one flash
+    lda #SFX_PLAYER_HIT
+    jsr RequestSound
     lda #0
     sta EnemyFlags,x
     sta EnemyHealth,x
@@ -88,7 +90,8 @@ HitEnemy:
     beq .kill
     lda #($80|HIT_FLASH_FRAMES)
     sta EnemyVisual,x
-    rts
+    lda #SFX_HIT
+    jmp RequestSound
 .kill:
     ldy CombatType
     lda TypeScore,y
@@ -97,9 +100,10 @@ HitEnemy:
     sta EnemyFlags,x
     lda #ENEMY_BURST_FRAMES
     sta EnemyVisual,x
-    rts
+    lda #SFX_KILL
+    jmp RequestSound
 
-; Cosmetic immunity cue. A clobbered; successful hit flash takes priority. <25 cycles.
+; Immunity flash and sound request. A clobbered; hit flash wins. <40 cycles.
 ImmuneEnemy:
     SUBROUTINE
     lda EnemyVisual,x
@@ -107,7 +111,8 @@ ImmuneEnemy:
     lda #IMMUNE_FLASH_FRAMES
     sta EnemyVisual,x
 .done:
-    rts
+    lda #SFX_IMMUNE
+    jmp RequestSound
 
 ; A=packed-BCD award (type award). Saturates at 9999. X/Y preserved, <50 cycles.
 AwardScore:

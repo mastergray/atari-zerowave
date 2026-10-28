@@ -30,6 +30,7 @@ RenderEntry  = $ff98
     ORG $0000
     RORG $f000
     include "game.asm"
+    include "audio.asm"
     include "input.asm"
     include "play.asm"
     include "enemies.asm"
@@ -41,6 +42,9 @@ RenderEntry  = $ff98
     include "fixtures.inc"
     include "movement.inc"
     include "enemy_types.inc"
+    IF DISPLAY_TEST = 0
+    include "audio.inc"
+    ENDIF
     include "render_tables.inc"
 Bank0End = *
     IF Bank0End > $ff80

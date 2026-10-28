@@ -4,12 +4,12 @@ Implement the game defined in [PORT_OUTLINE.md](PORT_OUTLINE.md) as a native Ata
 
 The first playable build must support two active enemies. The implementation reserves four enemy slots and separates storage capacity from the current level's cap. Three- and four-enemy levels are enabled only after their display schedules pass the tests below. Controls and combat rules are requirements; tuning values are initial defaults that may change through playtesting.
 
-Implementation status (2026-10-27): the playable ROM includes one beam shot per
+Implementation status (2026-10-28): the playable ROM includes one beam shot per
 joystick flick, all five enemy variants, health, score, damage/immunity feedback,
-destruction bursts, and start/game-over/restart. See [play instructions](../README.md)
+destruction bursts, attack/combat sound cues, and start/game-over/restart. See [play instructions](../README.md)
 and [measured kernel timing](KERNEL_TIMING.md). Difficulty is fixed at two active
 enemies, a 90-update spawn interval, and the provisional type settings below.
-Level quotas/transitions, additional hit/death sound cues, and hardware
+Level quotas/transitions and hardware
 readability remain future work. A separate display-test ROM retains the legacy
 held beam and static SELECT layouts. Level-specific rules below still define
 the full game target and are not enabled yet.
@@ -390,9 +390,24 @@ Display four score digits, five health marks, a bomb-ready mark, and the level n
 Use two sound channels: one short beam-shot cue and one prioritized event cue.
 Trigger the beam envelope once per shot, never continuously while held; stick
 release does not need to cut off the short shot sound. Clear it on reset or
-leaving play. Event priority is death, bomb, player hit, then enemy kill.
-Coalesce multiple same-update kills into one cue; no dynamic sound queue. Define
-effect envelopes as short ROM tables; tune timbre on hardware. Music is outside scope.
+leaving play. Channel 1 priority, highest first, is game over, player damage,
+enemy destruction, nonlethal hit, ineffective attack, then bomb. Outcomes replace
+the bomb sound when it hits a target, so rejection and successful damage remain
+audible. A request of equal or higher priority restarts/replaces the current cue;
+lower-priority requests are discarded without being queued. Resolve all slots
+before selecting the cue, making priority independent of slot order. Multiple
+same-update kills or contacts coalesce into one sound.
+
+`config/audio.json` defines ascending-priority event IDs and envelope segments
+`[updates, AUDC, AUDF, AUDV]`. Generated ROM tables expand these into one register
+sample per update. Bomb, rejection, nonlethal hit, destruction, player damage,
+and game-over envelopes last 6, 8, 6, 12, 12, and 36 updates respectively.
+The beam's existing five-update envelope remains independent. Timer zero silences
+the event channel on the next update after the last sample. New-run initialization
+clears the event ID, timer, and request; weapon cleanup on game over leaves its
+four-note descending cue running. No cue repeats from a held input, a rejected
+cooldown press, a cosmetic animation, or continued game-over state.
+Tune timbre on hardware; music remains outside scope.
 
 ## RAM allocation
 
@@ -403,7 +418,7 @@ The current map uses the full available address range, with explicit reserve and
 | `$80–$9F` | 32 | Four enemy slots, eight arrays of four bytes |
 | `$A0–$AF` | 16 | Diagnostic layout ID, frame counter, bomb count, mode, HP, two score bytes, spawn timer, square timer, RNG, active count, cap, movement enable, spawn interval, beam palette index, beam rearm latch |
 | `$B0–$B7` | 8 | Direction, last direction, previous button/reset bits, beam enable, bomb cooldown, bomb-animation timer, bomb event, frame phase |
-| `$B8–$BF` | 8 | Two HUD health masks, beam-shot sound timer, player-hit timer, four reserves |
+| `$B8–$BF` | 8 | Two HUD health masks, beam-shot timer, player-hit timer, event sound ID/timer/request, one reserve |
 | `$C0–$D7` | 24 | Renderer pointers, row bytes, and draw/HUD state |
 | `$D8–$E7` | 16 | Ten HUD score row bytes, four status-pointer bytes, draw-age temporary, general temporary; logic scratch aliases the HUD storage during overscan |
 | `$E8–$EF` | 8 | Unallocated margin; guard pattern in debug builds |
@@ -450,6 +465,7 @@ build, combat, display, generation, and cartridge-test subset:
 | `src/input.asm`, `src/game.asm`, `src/play.asm` | Input decoding, frame orchestration and playable mode/update order |
 | `src/enemies.asm`, `src/combat.asm` | Slot pool, spawning, movement, hits, score/quota |
 | `src/audio.asm` | Sound state and event priorities |
+| `config/audio.json` | Prioritized event envelopes and TIA register segments |
 | `src/render.asm`, `src/hud.asm`, `src/frame.asm`, `src/kernel.asm` | Bank-0 display preparation and positioning; bank-1 synchronization and timed screen output |
 | `config/tuning.json`, `config/levels.json` | Single source for provisional numbers and level rows |
 | `tools/generate_assets.py` | Deterministic geometry, beam, font, and level-table generation |
@@ -484,6 +500,7 @@ Host tests verify the integer model and generated data; they do not prove the as
 | Resolution order | Same-frame beam+bomb can damage a diamond twice if eligible, but grants one kill per target. Lethal attacks prevent contact; a nonlethal hit does not. Multiple surviving contacts reduce player HP without underflow. |
 | Contact damage | Small magenta triangles deal two player damage; other enemies deal one. Enemy health and contact damage remain independent. Test one HP, two HP, simultaneous contacts, and a lethal attack on the contact update. |
 | Attack feedback | In-range immune hits flash yellow/orange and shake once per attack; real nonlethal hits flash white; kills show the burst. No immunity cue for misses, rejected bombs, holds, or cosmetic fades. Both draw phases show every stage. Actual damage wins over simultaneous immunity feedback. |
+| Audio | Each accepted event produces the full configured TIA envelope, then silence; priority is independent of slot order. Beam remains independent of event cues. Higher/equal priority interrupts, lower priority never queues, multi-kills coalesce, game over finishes once, and reset/restart immediately clears both voices. |
 | Player feedback | Damage starts a 12-update red background fade across HUD and arena, including fatal hits. Further hits still damage and restart it; reset clears it. Beam/ring/sprite output and frame timing remain correct throughout. |
 | Destruction burst | A scored kill draws all three stages at its final position, awards score once, and expires after 18 updates. Two bursts or a burst plus a live enemy each appear at least every other frame. A reserved burst slot cannot be reused early; reset clears all effects. |
 | Movement | Fractional stepping, subtraction near zero, and every lane/radius mapping are correct. Diamond speed increases at each inward distance band and stays below the magenta triangle. No variant or burst leaves the arena. |
@@ -504,7 +521,7 @@ Use small deterministic fixtures for logic failures, then a longer scripted stre
 | 1 | Turret, eight color-cycling beam patterns, one enemy graphic, expanding bomb outline | Cycle schedule and Stella measurements prove the core display and both effect phases |
 | 2 | Input, two-enemy pool/display, movement, combat, HP, score, restart | Rule fixtures pass in the cartridge; two-enemy overlap remains readable |
 | 3a | One beam shot per joystick flick, revised vulnerabilities, fast triangle, armored square, accelerating blue diamond | Shot input/fade, weapon matrix, movement, readability, and bomb fairness pass at the two-enemy cap |
-| 3b | Level table, transitions, and remaining sound cues | Opening levels introduce variants gradually and are playable and fair; baseline hardware pass |
+| 3b | Level table, transitions, and sound balancing (combat cues implemented) | Opening levels introduce variants gradually and are playable and fair; baseline hardware pass |
 | 4 | Vertical sprite reuse and three-enemy scheduling | Three-enemy stress cases meet timing and omission limits; enable level 4 density |
 | 5 | Four-enemy scheduling and later-level balancing | Four-enemy cases pass before enabling level 6 density; otherwise retain the measured lower cap |
 

@@ -35,7 +35,7 @@ There are no stacked gradient lines or automatic repeat shots.
 | The 24-ring bomb sequence and smooth circular outlines | One coarse outline expanding through four sizes, a noise burst, and immediate local damage | Precomputed outlines share alternate frames with the beam; no accumulated rings or trails. |
 | Shifters, reflectors, reflected shots, and free movement | Triangles, squares, and a blue diamond sharing straight approach lanes, with type-specific speed and health | Keeps weapon choice and enemy variety without extra projectiles or movement off the firing lanes. Shifters and reflectors are only design intentions in the checkout. |
 | XP, weapon upgrades, per-type statistics, reports, and elaborate screens | Score, five health marks, bomb-ready indicator, and game over | Focuses the game on survival. These systems are scope cuts, not claims that counters or menus are impossible on Atari. |
-| Music and decorative background animation | Brief attack, hit, and death sounds on a plain arena | Clear feedback earns its cost; decoration can wait. Sound would be new work. |
+| Music and decorative background animation | Brief attack, hit, and death sounds on a plain arena | Attack, rejection, hit, destruction, player-damage, and game-over cues are implemented. Music remains outside scope. |
 
 The controller requires discrete aiming, and the original visual presentation needs substantial reduction. Removing charge, upgrades, or advanced enemy behaviors is a recommendation to contain scope and display demands; their absence is not individually required by the hardware.
 
@@ -166,8 +166,8 @@ Preserve the eight-way beam and bomb button throughout those experiments. After 
 
 The playable prototype now implements all five variants, one beam shot per
 joystick flick, automatic shot fades, the revised vulnerabilities, vivid immunity
-and hit feedback, red player-damage flashes, health, score, destruction bursts,
-and restart. It uses fixed
+and hit feedback, red player-damage flashes, attack/combat/game-over sounds,
+health, score, destruction bursts, and restart. It uses fixed
 difficulty with all types available for playtesting and at most one bomb-only
 enemy active. Level progression, hardware readability, and later-level enemy
 counts remain to be validated. The earlier static display fixtures and held-beam

@@ -117,42 +117,6 @@ UpdatePrototype:
     jsr UpdateBeamVisual
     jmp UpdateAudio
 
-; A clobbered, no scratch; two independent attack channels, under 100 cycles.
-UpdateAudio:
-    SUBROUTINE
-    ; Minimal attack feedback; no music/event queue.
-    lda #4
-    sta AUDC0
-    lda #8
-    sta AUDF0
-    IF DISPLAY_TEST
-    lda BeamEnabled
-    asl
-    ELSE
-    lda BeamEvent
-    beq .shotDecay
-    lda #BEAM_SOUND_FRAMES
-    sta ShotSoundTimer
-.shotDecay:
-    lda ShotSoundTimer
-    beq .shotVolume
-    dec ShotSoundTimer
-.shotVolume:
-    ENDIF
-    sta AUDV0
-    lda #8
-    sta AUDC1
-    sta AUDF1
-    ; Keep the short noise envelope independent of the longer ring animation.
-    lda BombTimer
-    sec
-    sbc #(BOMB_ANIMATION_FRAMES-BOMB_SOUND_FRAMES)
-    bcs .bombVolume
-    lda #0
-.bombVolume:
-    sta AUDV1
-    rts
-
 ; Visual state only. Gameplay starts a fade on each shot; diagnostics retain
 ; the held/release experiment. A/X clobbered, no scratch, under 100 cycles.
 ; Laser Blast's decay is a low-nibble countdown 15..1, then hidden at zero.

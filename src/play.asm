@@ -6,6 +6,7 @@ UpdateGame:
     inc FrameCounter
     lda #0
     sta BombEvent
+    sta SoundRequest
     jsr SampleInput
     jsr UpdateBursts       ; advance old effects, including during game over
     lda PlayerHitTimer
@@ -56,6 +57,8 @@ UpdateGame:
     lda #1
     sta BombEvent
     inc BombCount
+    lda #SFX_BOMB
+    sta SoundRequest
 .combat:
     jsr ResolveCombat
     jsr ScanEnemies
@@ -64,6 +67,8 @@ UpdateGame:
     lda #MODE_GAME_OVER
     sta GameMode
     jsr ClearWeapons
+    lda #SFX_DEATH
+    jsr RequestSound
     jmp .finish
 .alive:
     jsr TrySpawn
@@ -91,6 +96,9 @@ StartRun:
     sta ActiveCount
     sta BeamPalette
     sta PlayerHitTimer
+    sta EventSoundId
+    sta EventSoundTimer
+    sta SoundRequest
     lda #START_HP
     sta Health
     lda #ENEMY_CAP

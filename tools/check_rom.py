@@ -57,6 +57,11 @@ def check(display=False):
         "enemy_burst_updates": sym["ENEMY_BURST_FRAMES"],
         "immunity_feedback_updates": sym["IMMUNE_FLASH_FRAMES"],
         "player_hit_flash_updates": sym["PLAYER_HIT_FRAMES"],
+        "audio": {"beam_updates": None if display else manifest["tuning"]["beam_sound_frames"],
+                  "events": [] if display else [
+                      {"name": sound["name"], "priority": index,
+                       "updates": sum(segment[0] for segment in sound["segments"])}
+                      for index, sound in enumerate(json.loads((ROOT / "config/audio.json").read_text())["sounds"], 1)]},
         "bomb_radii": manifest["bomb_radii"],
         "bomb_animation_frames": manifest["bomb_animation_frames"],
         "reference_commit": "fb68a689d3fa6346696dd2310e5dd3d167c065a1",

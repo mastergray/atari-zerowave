@@ -220,29 +220,54 @@ zero in the separator. The diagnostic ROM retains its black background writes.
 New contacts restart the timer without reducing further contact damage. Reset
 clears it, while game-over weapon cleanup leaves the fatal-hit flash visible.
 
+## Combat audio
+
+`src/audio.asm` updates both TIA voices during overscan. Channel 0 retains the
+five-update beam tone. Channel 1 plays generated per-update control, frequency,
+and volume tables from `config/audio.json`. Empty bombs, rejection, nonlethal hits,
+destruction, player hits, and game over last 6/8/6/12/12/36 updates respectively.
+Game over has highest priority, followed by player hit, destruction, nonlethal
+hit, rejection, and bomb. Requests are coalesced before playback; higher/equal
+priority replaces a running envelope, while lower-priority events are discarded.
+
+Event ID, remaining updates, and this-update request use three former reserve
+bytes at `$BC–$BE`; `$BF` remains reserved. Sound timers never drive damage or
+visuals. Fatal-hit cleanup stops the beam but lets the game-over tone finish;
+reset/restart clears both voices. The separate display ROM keeps its original
+audio behavior. Tests check exact TIA register envelopes, silence after expiry,
+slot-order-independent priority, preemption/retriggering, coalesced kills,
+rejected attacks, and game-over/reset behavior.
+
+A separate Stella 6.0.2 capture through SDL's disk audio backend records all
+seven cues from the playable ROM, using actual beam/bomb inputs or contact
+fixtures. All seven produce nonzero PCM, stay below clipping, and return to
+silence. `build/audio-captures/report.json` records the ROM hash and WAV paths;
+the capture script and isolated settings are retained alongside it. This checks
+emulated audio output, not the user's speaker routing or real Atari sound.
+
 ## Space and update budgets
 
 | Resource | Current measurement |
 | --- | --- |
-| Bank 0 end / room before trampoline | `$FA0E` / 1,394 bytes |
+| Bank 0 end / room before trampoline | `$FB5F` / 1,057 bytes |
 | Bank 1 end / room before trampoline | `$FD3D` / 579 bytes |
 | Cartridge | 8,192 bytes, identical bank tails and vectors |
 | RAM | Fixed 128-byte map, including reserves and stack |
 | Stack | Eight bytes observed; 16 reserved |
 | Guard | Eight bytes at `$E8–$EF`, intact in tested runs |
-| Update cost | 331–1,234 cycles from `GameFrame` to `LogicDone` |
+| Update cost | 330–1,321 cycles from `GameFrame` to `LogicDone` |
 | Render preparation done | 1,392–1,696 cycles from VSYNC line start |
 
-The combat suite records 6,500 frame samples in `build/combat-timing.json`,
+The combat suite records 6,760 frame samples in `build/combat-timing.json`,
 including a survival run of at least 1,400 frames across all five types, movement/attack/contact boundaries, scoring,
 spawning, immunity/hit feedback, destruction bursts, HUD values, and restart. Tests enforce the 2,000-cycle update and
-2,400-cycle preparation limits. The static diagnostic build has 1,721 bytes free
+2,400-cycle preparation limits. The static diagnostic build has 1,673 bytes free
 in bank 0 and 456 in bank 1.
 
 Four 64-byte magnitude tables live in bank 0. Cardinal/diagonal signs reconstruct
 all eight lanes there; cached sprite coordinates cross into the render bank.
-This preserves its remaining space for later HUD/display work. Level state,
-new audio envelopes and sprite reuse still require fresh RAM/timing budgets.
+This preserves its remaining space for later HUD/display work. Level state
+and sprite reuse still require fresh RAM/timing budgets.
 
 ## Display limits and evidence
 
@@ -257,7 +282,10 @@ separated-height pairs. Its SELECT fixture injection temporarily drives only the
 RIOT port-B SELECT bit; the ROM still performs its normal switch sampling and
 edge detection. The command transcript documents that setup. Short log chunks
 avoid Stella 6's corrupt session export after its prompt history wraps; they
-are combined into `session.txt`. Debugger `frame`
+are combined into `session.txt`. A shared lock serializes verification jobs,
+because Stella 6 exports sessions into the user's home directory with names
+that can collide within the same second. Each job uses its own XDG configuration
+directory, so muting visual tests does not change normal Stella settings. Debugger `frame`
 stops at VSYNC, so animation captures wait for a complete newly drawn frame.
 
 The 56 diagnostic Stella snapshots cover both phases of all eight rays, neutral, every bomb
@@ -277,7 +305,7 @@ a diamond defeated by three flicks, a held dark beam, yellow/orange immunity sha
 white successful hits, armor loss/two-bomb kills, double contact damage, and
 every red-flash stage through game over and reset.
 Its debugger state confirms
-score awards and start/reset input handling. It uses explicit RAM fixtures only
+score awards, event sound selection/countdown, and start/reset input handling. It uses explicit RAM fixtures only
 for boundary cases, after first exercising natural spawning and movement.
 Real hardware
 flicker and audio remain untested. Advancing

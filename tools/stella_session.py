@@ -1,5 +1,6 @@
 """Shared X11/Stella debugger runner for display and combat scenarios."""
 from pathlib import Path
+import fcntl
 import os
 import re
 import shutil
@@ -12,6 +13,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def run_stella(stem, commands, labels, advances, timeout=45):
+    # Stella 6 saves debugger sessions into HOME with second-resolution names.
+    # Concurrent verification jobs can overwrite or collect each other's logs.
+    out = ROOT / "build/stella"
+    out.mkdir(parents=True, exist_ok=True)
+    with (out / ".session.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return _run_stella(stem, commands, labels, advances, timeout)
+
+
+def _run_stella(stem, commands, labels, advances, timeout):
     if not os.environ.get("DISPLAY"):
         raise SystemExit("Use xvfb-run -a python3 tools/verify_stella.py, or run inside a graphical session")
     out = ROOT / "build/stella"

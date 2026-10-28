@@ -182,6 +182,146 @@ class CombatTests(unittest.TestCase):
                     self.assertEqual(m.value("EnemyVisual"), 0)
                     self.assert_arena_colors_and_sprites(m)
 
+    def sound_sequence(self, name):
+        sound = next(s for s in assets.load_sounds() if s["name"] == name)
+        return [(control, frequency, volume) for frames, control, frequency, volume in sound["segments"]
+                for _ in range(frames)]
+
+    def assert_sound(self, m, name, elapsed=0):
+        sequence = self.sound_sequence(name)
+        self.assertEqual(m.value("EventSoundId"), m.sym["SFX_" + name.upper()])
+        self.assertEqual(tuple(m.bus.tia[r] for r in (0x16, 0x18, 0x1a)), sequence[elapsed])
+        self.assertEqual(m.value("EventSoundTimer"), len(sequence) - elapsed - 1)
+
+    def test_audio_envelopes_follow_real_combat_and_finish_in_silence(self):
+        for name in ("bomb", "immune", "hit", "kill", "player_hit", "death"):
+            with self.subTest(sound=name):
+                m = self.game()
+                if name in ("immune", "hit", "kill"):
+                    self.enemy(m, 0, 2, 40, kind={"immune": 4, "hit": 2, "kill": 0}[name])
+                elif name in ("player_hit", "death"):
+                    m.poke("Health", 1 if name == "death" else 5)
+                    self.enemy(m, 0, 6, 8)
+                for elapsed in range(len(self.sound_sequence(name))):
+                    self.frame(m, 8, fire=name == "bomb")
+                    self.assert_sound(m, name, elapsed)
+                    self.assertEqual(m.bus.tia[0x19], 0 if name == "death" else max(0, 5 - elapsed))
+                for _ in range(3):
+                    self.frame(m, 8, fire=name == "bomb")
+                    self.assertEqual(m.value("EventSoundId"), 0)
+                    self.assertEqual(m.bus.tia[0x1a], 0)
+
+    def test_audio_same_update_priority_does_not_depend_on_enemy_order(self):
+        # Each fixture is (kind, lane, radius); actual outcomes drive requests.
+        cases = [
+            ([(4, 2, 40), (2, 2, 40)], False, 5, "hit"),
+            ([(4, 2, 40), (0, 2, 40)], False, 5, "kill"),
+            ([(5, 6, 20), (4, 0, 20)], True, 5, "kill"),
+            ([(4, 6, 8), (0, 2, 40)], False, 5, "player_hit"),
+            ([(4, 6, 8), (0, 2, 40)], False, 1, "death"),
+        ]
+        for targets, bomb, health, sound in cases:
+            for order in (targets, targets[::-1]):
+                m = self.game()
+                m.poke("Health", health)
+                for slot, (kind, lane, radius) in enumerate(order):
+                    self.enemy(m, slot, lane, radius, kind=kind)
+                self.frame(m, 8, fire=bomb)
+                self.assert_sound(m, sound)
+        # Bomb damage wins over simultaneous beam immunity on the same target.
+        m = self.game()
+        self.enemy(m, 0, 2, 20, kind=5)
+        self.frame(m, 8, fire=True)
+        self.assert_sound(m, "hit")
+        # Bombing a triangle must make the rejection audible, not just detonate.
+        m = self.game()
+        self.enemy(m, 0, 2, 20)
+        self.frame(m, fire=True)
+        self.assert_sound(m, "immune")
+
+    def test_audio_preemption_retrigger_and_dropped_events_are_not_queued(self):
+        m = self.game()
+        self.frame(m, fire=True)
+        self.assert_sound(m, "bomb")
+        self.enemy(m, 0, 2, 40, kind=2)
+        self.frame(m, 8)
+        self.assert_sound(m, "hit")
+        self.frame(m)  # rearm
+        self.frame(m, 8)
+        self.assert_sound(m, "hit")  # equal-priority hit restarts its envelope
+        self.frame(m)
+        self.frame(m, 8)
+        self.assert_sound(m, "kill")
+        self.enemy(m, 1, 6, 8)
+        self.frame(m)
+        self.assert_sound(m, "player_hit")
+        self.enemy(m, 1, 2, 40, kind=4)
+        self.frame(m, 8)  # lower priority immunity dropped; beam still audible
+        self.assert_sound(m, "player_hit", 1)
+        self.assertEqual(m.bus.tia[0x19], 5)
+        for elapsed in range(2, len(self.sound_sequence("player_hit"))):
+            self.frame(m, 8)
+            self.assert_sound(m, "player_hit", elapsed)
+        self.frame(m, 8)
+        self.assertEqual(m.bus.tia[0x1a], 0, "Dropped immunity must not play later")
+        self.frame(m)
+        self.frame(m, 8)
+        self.assert_sound(m, "immune")
+
+    def test_audio_multikills_and_contacts_coalesce_without_replaying(self):
+        for kind, radius, bomb, sound, health in [(4, 20, True, "kill", 5), (1, 8, False, "player_hit", 1)]:
+            m = self.game()
+            for slot, lane in enumerate((0, 4)):
+                self.enemy(m, slot, lane, radius, kind=kind)
+            self.frame(m, fire=bomb)
+            self.assert_sound(m, sound)
+            self.assertEqual(m.value("Health"), health)
+            for elapsed in range(1, len(self.sound_sequence(sound))):
+                self.frame(m, fire=bomb)
+                self.assert_sound(m, sound, elapsed)
+            self.frame(m, fire=bomb)
+            self.assertEqual(m.bus.tia[0x1a], 0)
+
+    def test_audio_no_false_hit_cues_or_queued_bombs(self):
+        m = self.game()
+        self.enemy(m, 0, 6, 24, fraction=1, kind=4)
+        self.frame(m, 8, fire=True)  # wrong lane, outside radius: only weapons
+        self.assert_sound(m, "bomb")
+        for elapsed in range(1, 6):
+            self.frame(m, 8)
+            self.assert_sound(m, "bomb", elapsed)
+        self.frame(m, 8, fire=True)  # cooldown rejects a fresh bomb press
+        self.assertEqual(m.bus.tia[0x1a], 0)
+        self.assertEqual(m.value("SoundRequest"), 0)
+        for _ in range(60):
+            self.frame(m, 8, fire=True)  # no repetition or delayed queue
+            self.assertEqual(m.bus.tia[0x1a], 0)
+        self.assertEqual(m.value("BombCount"), 1)
+        # A shot that prevents a contact emits destruction, not player damage.
+        m = self.game()
+        self.enemy(m, 0, 2, 8)
+        self.frame(m, 8)
+        self.assert_sound(m, "kill")
+        self.assertEqual(m.value("Health"), 5)
+
+    def test_audio_reset_and_restart_interrupt_every_voice(self):
+        for death in (False, True):
+            for reset in (False, True) if death else (True,):
+                m = self.game()
+                if death:
+                    m.poke("Health", 1)
+                    self.enemy(m, 0, 6, 8)
+                self.frame(m, 8, fire=not death)
+                self.assert_sound(m, "death" if death else "bomb")
+                self.frame(m, 8, reset=reset, fire=True)
+                self.assertEqual(m.value("GameMode"), 1)
+                self.assertEqual(m.value("BombCount"), 0)
+                for name in ("ShotSoundTimer", "EventSoundTimer", "EventSoundId", "SoundRequest"):
+                    self.assertEqual(m.value(name), 0)
+                self.assertEqual((m.bus.tia[0x19], m.bus.tia[0x1a]), (0, 0))
+                self.frame(m, 8, fire=True)
+                self.assertEqual((m.bus.tia[0x19], m.bus.tia[0x1a]), (0, 0))
+
     def test_diamond_combined_attacks_and_feedback_priority(self):
         for hp in (1, 2, 3):
             m = self.game()

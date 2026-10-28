@@ -43,6 +43,9 @@ HudHealth2      ds 1
 AudioReserved   ds 6
 ShotSoundTimer = AudioReserved
 PlayerHitTimer = AudioReserved+1
+EventSoundId = AudioReserved+2
+EventSoundTimer = AudioReserved+3
+SoundRequest = AudioReserved+4
 BeamLeft1       ds 2
 BeamLeft2       ds 2
 BeamRight0      ds 2

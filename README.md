@@ -18,7 +18,7 @@ Stella check also needs Linux/X11, Xvfb, xauth, libX11, and libXtst.
 ```sh
 make bootstrap  # Fetch pinned DASM 2.20.14.1 and py65 1.2.0 into .tools/
 make check      # Generate assets, assemble, and test the actual ROM
-make run        # Open Stella with NTSC/F8 and joystick settings
+make run        # Open Stella with NTSC/F8, joystick settings, and audio enabled
 ```
 
 The ROM is `build/atari-zerowave.bin`; symbols, assembly listing, and a checksum/
@@ -28,7 +28,7 @@ stay in `.tools/`; nothing is installed globally. A separately installed assembl
 can be selected with `make DASM=/path/to/dasm`.
 
 Make is optional for launching an existing ROM: open the `.bin` in Stella or run
-`stella build/atari-zerowave.bin`. `make run` also rebuilds it when sources change.
+`stella -audio.enabled 1 build/atari-zerowave.bin`. `make run` also rebuilds it when sources change.
 
 ## Controls
 
@@ -115,6 +115,35 @@ the magenta triangle's urgency, the attack/player-damage feedback, and whether a
 squares leave enough time for two bombs. Let enemies through once to compare
 ordinary contact damage with the small triangle's double damage.
 
+## Sound and Stella setup
+
+`make run` explicitly enables audio, even if Stella's saved configuration has it
+disabled. It keeps your existing volume. For a known volume, use
+`make run STELLA_AUDIO='-audio.enabled 1 -audio.volume 80'`.
+When opening the ROM directly, enable audio in Stella's Audio Settings and check
+its volume and your system's application/output volume. The title screen is silent:
+press Space to start, then tap an arrow for a beam or release and press Space for a bomb.
+
+| Event | Sound |
+| --- | --- |
+| Beam shot | Short high tone; one per joystick flick |
+| Bomb without a hit | Short noise burst |
+| Ineffective attack | Low rejection buzz |
+| Successful nonlethal hit | Sharp descending impact |
+| Enemy destroyed | Falling noise explosion |
+| Player damaged | Harsh descending buzz with the red flash |
+| Game over | Four descending notes over about 0.6 seconds |
+
+The beam has its own channel. The other channel prioritizes game over, player
+damage, destruction, successful hit, rejection, then an empty bomb. A bomb that
+hits something plays the outcome cue. Higher/equal-priority events interrupt an
+unfinished cue; lower-priority events are discarded. Multiple kills in one update
+make one explosion. Reset/restart silences both channels immediately; the game-over
+tone otherwise finishes after play stops. Audio segments are tunable in
+`config/audio.json` as `[updates, waveform, frequency divider, volume]`, ordered
+from lowest to highest priority. The visual Stella checks intentionally mute
+audio inside their separate configuration directories.
+
 ## Static display test
 
 `make all` also builds `build/atari-zerowave-display.bin`. Open it with
@@ -131,9 +160,11 @@ appearances further.
 
 ## Validation and development
 
-`make check` runs 55 tests covering generated geometry, all joystick combinations,
+`make check` runs 61 tests covering generated geometry, all joystick combinations,
 button edges and exact cooldown boundaries, both startup banks, stack/guard
 integrity, fixed frame lengths, kernel write deadlines, and display fairness.
+Audio tests check exact TIA envelopes and expiry, simultaneous-event priority,
+preemption/retriggering, coalesced kills, and silence on reset/restart.
 Tests check every animation stage for presses on either frame phase, actual
 playfield data, ball motion/enable timing, uniform beam color, sprite rows, every palette phase,
 continuous beam state, and the separate short sound envelope. Release tests cover
@@ -175,8 +206,8 @@ Assembly lives in `src/`; `config/` contains tuning and static fixtures;
 `tools/generate_assets.py` produces the shared graphics tables. The independent
 Godot reference checkout in `res/` is ignored by this repository.
 
-Next is playtesting these controls and variants, then the level table, level
-transitions, and additional hit/death sounds. Keep the two-enemy cap until later
+Next is playtesting controls, variants, and sound, then the level table and level
+transitions. Keep the two-enemy cap until later
 sprite reuse work establishes a readable schedule for three or four enemies.
 
 ## Local repository

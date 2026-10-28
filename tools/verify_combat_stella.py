@@ -16,7 +16,7 @@ def main():
     fields = ("GameMode", "Health", "ScoreHi", "ScoreLo", "ActiveCount", "BombCount",
               "BombCooldown", "EnemyFlags", "EnemyRadiusHi", "EnemyRadiusLo", "BeamEnabled",
               "EnemyVisual", "EnemyHealth", "SelectedSlot", "BeamArmed", "BeamDrawDirection", "BeamDrawColor",
-              "PlayerHitTimer")
+              "PlayerHitTimer", "EventSoundId", "EventSoundTimer")
 
     def frame(count=1):
         commands.extend([f"frame #{count}", "print _cycleslo"])
@@ -323,6 +323,18 @@ def main():
     expect("player-hit-game-over-finished", Health=0, GameMode=2, PlayerHitTimer=0)
     expect("player-hit-before-reset", Health=3, PlayerHitTimer=11)
     expect("player-hit-reset", Health=5, PlayerHitTimer=0)
+    for label, sound_id, timer in (
+        ("ready", 0, 0), ("start-held", 0, 0),
+        ("diamond-shot-1", 3, 4), ("diamond-shot-fading", 0, 0),
+        ("diamond-shot-2", 3, 4), ("diamond-shot-3", 4, 10),
+        ("immune-square", 2, 6), ("immune-square-expired-held", 0, 0),
+        ("immune-triangle-0", 2, 6), ("immune-triangle-1", 2, 5),
+        ("armor-hit-1", 3, 4), ("armor-rejected-bomb", 0, 0),
+        ("armor-hit-2", 4, 10), ("fast-contact", 5, 10),
+        ("player-hit-finished", 0, 0), ("fast-contact-game-over", 6, 34),
+        ("player-hit-game-over-finished", 6, 22), ("player-hit-reset", 0, 0),
+    ):
+        expect(label, EventSoundId=sound_id, EventSoundTimer=timer)
     report = dict(directory=str(run.relative_to(ROOT)), session=transcript.name,
                   snapshots=dict(zip(labels, [p.name for p in snapshots])), states=states,
                   frame_lines=262, cycles_per_frame=19912)
