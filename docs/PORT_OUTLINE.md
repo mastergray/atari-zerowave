@@ -6,7 +6,7 @@ The [implementation specification](IMPLEMENTATION_SPEC.md) defines the native co
 
 ## Agreed prototype baseline
 
-Build a small, single-screen survival game: a stationary turret fires along eight directions when the joystick is held, and the button detonates a fixed-strength local bomb. Enemies approach along those same eight directions. Start with triangles and squares, then add the agreed speed/armor variants and blue rhombus described below. Keep health, score, and level progression. Prove the game with two active enemies first, then introduce more simultaneous enemies in later levels as rendering tests establish capacity.
+Build a small, single-screen survival game: a stationary turret fires along eight directions when the joystick is held, and the button detonates a fixed-strength local bomb. Enemies approach along those same eight directions. Start with triangles and squares, then add the agreed speed/armor variants and blue diamond described below. Keep health, score, and level progression. Prove the game with two active enemies first, then introduce more simultaneous enemies in later levels as rendering tests establish capacity.
 
 **The largest cuts should be swarm density, freedom of movement, and visual effects.** Those cuts preserve the user's two essential actions: aim/fire with the stick and bomb with the button.
 
@@ -32,7 +32,7 @@ Re-aiming replaces that afterglow immediately. There are no stacked gradient lin
 | Sweeping filled sectors, lingering trails, transparency, and accumulated effects | One beam, with a short cosmetic fade on release | Removes overlapping graphics and direction history without sacrificing directional firing. |
 | Hold-to-charge bomb, growing charge circle, and compression animation | One bomb strength, fired on button press | Simplifies input and keeps the bomb immediate. Charging is technically plausible, but unnecessary for the first game. |
 | The 24-ring bomb sequence and smooth circular outlines | One coarse outline expanding through four sizes, a noise burst, and immediate local damage | Precomputed outlines share alternate frames with the beam; no accumulated rings or trails. |
-| Shifters, reflectors, reflected shots, and free movement | Triangles, squares, and a blue rhombus sharing straight approach lanes, with type-specific speed and health | Keeps weapon choice and enemy variety without extra projectiles or movement off the firing lanes. Shifters and reflectors are only design intentions in the checkout. |
+| Shifters, reflectors, reflected shots, and free movement | Triangles, squares, and a blue diamond sharing straight approach lanes, with type-specific speed and health | Keeps weapon choice and enemy variety without extra projectiles or movement off the firing lanes. Shifters and reflectors are only design intentions in the checkout. |
 | XP, weapon upgrades, per-type statistics, reports, and elaborate screens | Score, five health marks, bomb-ready indicator, and game over | Focuses the game on survival. These systems are scope cuts, not claims that counters or menus are impossible on Atari. |
 | Music and decorative background animation | Brief attack, hit, and death sounds on a plain arena | Clear feedback earns its cost; decoration can wait. Sound would be new work. |
 
@@ -45,11 +45,11 @@ The player stays in the center. A triangle approaches from the upper left; holdi
 Target rules, including the enemy revision agreed on 2026-10-27; numerical tuning remains provisional:
 
 - Hold any of eight directions to fire continuously. Centering the stick stops firing. Changing direction redirects the beam immediately on the next update.
-- All triangles take beam damage only; bombs cannot damage them. All squares take bomb damage only; the beam cannot damage them. Blue rhombuses take damage from either attack.
+- All triangles take beam damage only; bombs cannot damage them. All squares take bomb damage only; the beam cannot damage them. Blue diamonds take damage from either attack.
 - Bombs deal one damage to each eligible enemy inside a fixed radius around the player. One-health targets die; tougher targets retain their remaining health. The expanding ring does not apply extra hits.
 - Press the button once to detonate; holding it does not repeat. Use a short cooldown, initially around one second, and an obvious ready indicator. This cooldown is a new balancing proposal.
 - Keep the beam active when bombing. Its graphic alternates with the expanding ring, while beam damage remains enabled on every update.
-- An enemy reaching the center costs one health point and is removed. Start at five HP, matching the source's initial value.
+- An enemy reaching the center is removed and costs one player health point, except the small magenta triangle, which deals two. Start at five HP, matching the source's initial value; health cannot fall below zero.
 - Kills increase score and advance a level's kill quota. Begin with a two-enemy cap; later levels can raise that cap, shorten spawn delays, or increase approach speed within tested limits. At zero HP, show game over; RESET starts again.
 
 Early challenge comes from switching direction and timing the bomb. Later levels should add crowd management through higher simultaneous enemy counts. The compromise is a measured, bounded swarm rather than unrestricted density.
@@ -63,21 +63,34 @@ These are adaptation rules, not behavior recovered from a completed original gam
 | Enemy | Appearance | Damage accepted | Health | Movement |
 | --- | --- | --- | --- | --- |
 | Standard triangle | Existing green triangle | Beam only | 1 | Standard approach speed |
-| Fast triangle | Smaller, magenta triangle | Beam only | 1 | Fastest enemy, including compared with the rhombus near the turret |
+| Fast triangle | Smaller, magenta triangle | Beam only | 1 | Fastest enemy, including compared with the diamond near the turret |
 | Standard square | Existing pink square | Bomb only | 1 | Steady approach speed |
 | Armored square | Larger square with a visible damaged state | Bomb only | 2 | Slow enough to allow two separate bombs before contact |
-| Blue rhombus | Blue diamond silhouette | Beam and bomb | More than 1; exact value remains a tuning choice | Accelerates as distance to the turret decreases; capped below the fast triangle |
+| Blue diamond | Blue diamond silhouette | Beam and bomb | More than 1; exact value remains a tuning choice | Accelerates as distance to the turret decreases; capped below the fast triangle |
+
+The small magenta triangle still has only one health and dies to one beam hit,
+but deals two damage to the player on contact. All other types deal one contact
+damage, regardless of their own remaining health.
 
 The armored square takes one damage per detonation, so continuous beam behavior
 does not apply to its armor. A nonlethal hit changes its appearance; only the
 final hit awards score and plays the destruction burst.
 
-For the rhombus, use a short interval between beam damage ticks so its extra
+For the diamond, use a short interval between beam damage ticks so its extra
 health produces a visible sustained attack. This changes damage cadence only;
-the beam remains continuous and keeps its accepted animation. Exact rhombus
+the beam remains continuous and keeps its accepted animation. Exact diamond
 health, beam interval, speed bands, new score awards, and spawn weights need
 playtesting. The weapon vulnerabilities, magenta triangle's one health and top
-speed, and distance-based rhombus acceleration are fixed design requirements.
+speed and double contact damage, and distance-based diamond acceleration are
+fixed design requirements.
+
+Proposed attack feedback: an enemy briefly pulses gray when the wrong weapon
+hits it, while keeping its silhouette visible. A successful nonlethal hit uses
+a bright white flash; a kill uses the existing expanding destruction burst.
+An ineffective beam on a square may repeat the gray pulse at a slow interval;
+an in-range bomb on a triangle triggers it once per detonation. Misses,
+out-of-range bombs, and the diamond's normal interval between beam hits do not
+trigger the immunity cue. Pulse color and duration need visual playtesting.
 
 Introduce variants while retaining the validated two-enemy display cap, then
 use the level table to introduce them gradually. Increasing the number of enemy
@@ -139,7 +152,7 @@ management, and tween code are replaced by the cartridge's game loop and kernels
 
 1. **Core display:** centered turret, readable color-cycling beams in all eight directions, one enemy, and a button-triggered expanding bomb outline. Stable timing and responsive controls are the acceptance criteria.
 2. **Small combat loop:** two active enemies, both enemy types, fixed bomb radius, cooldown, health, score, and restart. Test same-height enemies, diagonal changes, and simultaneous beam/bomb use.
-3. **Variants, readability, and fairness:** verify the weapon/type matrix, small magenta triangles, two-bomb armor, rhombus acceleration and beam damage cadence, bomb-range cues, and spawn timing. Check frame timing and RAM/stack use in Stella, then test a real console and joystick.
+3. **Variants, readability, and fairness:** verify the weapon/type matrix, small magenta triangles, two-bomb armor, diamond acceleration and beam damage cadence, bomb-range cues, and spawn timing. Check frame timing and RAM/stack use in Stella, then test a real console and joystick.
 4. **Later-level density:** stress-test three enemies, then four, including shared-height and center-convergence cases during beam/bomb use. Record the highest acceptable count, then use validated caps in the level table and playtest each transition.
 
 If this version does not fit cleanly, cut in this order: decorative indicators and animation; arbitrary enemy overlap through stricter spawn spacing; then the active enemy count. A one-enemy version is a diagnostic fallback, not the intended finished game. Judge whether it can still produce enough challenge before accepting that reduction.

@@ -1,6 +1,6 @@
 # Atari ZeroWave implementation specification
 
-Implement the game defined in [PORT_OUTLINE.md](PORT_OUTLINE.md) as a native Atari 2600 cartridge: a stationary turret, eight-way joystick beam, button-triggered bomb, triangle/square variants and a blue rhombus, health, score, and levels with increasing enemy counts.
+Implement the game defined in [PORT_OUTLINE.md](PORT_OUTLINE.md) as a native Atari 2600 cartridge: a stationary turret, eight-way joystick beam, button-triggered bomb, triangle/square variants and a blue diamond, health, score, and levels with increasing enemy counts.
 
 The first playable build must support two active enemies. The implementation reserves four enemy slots and separates storage capacity from the current level's cap. Three- and four-enemy levels are enabled only after their display schedules pass the tests below. Controls and combat rules are requirements; tuning values are initial defaults that may change through playtesting.
 
@@ -15,7 +15,7 @@ to define the full game target; level-specific rules are not enabled yet.
 
 The enemy rules below were revised on 2026-10-27. They are the next implementation
 target: the current ROM still lets bombs kill triangles and has no fast triangle,
-armored square, or blue rhombus. Existing test results describe that current ROM,
+armored square, or blue diamond. Existing test results describe that current ROM,
 not completion of these revised rules.
 
 ## Platform and build decisions
@@ -84,7 +84,7 @@ Game geometry uses an eight-way lane and a radial distance, not free Cartesian m
 Each active enemy subtracts its type's speed for the current level and distance from its fixed-point distance once per update. Speeds are fractional-byte values, so `32` means `32/256` radial units per update. Saturate subtraction at zero; an underflow must never wrap an enemy to the outer rim.
 
 Standard enemies use steady speeds. The smaller magenta triangle is the fastest
-type at every distance. The blue rhombus accelerates as it approaches the turret;
+type at every distance. The blue diamond accelerates as it approaches the turret;
 use a small table of distance bands with increasing speeds, selected from its
 distance before movement. Its maximum speed must stay below the magenta
 triangle's. The armored square needs a slower profile that permits two bombs
@@ -99,43 +99,45 @@ For radius comparisons, explicitly compare both bytes: `24.00` is inside the bom
 
 ## Combat rules
 
-| Target | Health | Beam | Bomb inside radius | Kill score |
-| --- | --- | --- | --- | --- |
-| Standard green triangle | 1 | One damage on matching lane | No effect | 10 |
-| Smaller magenta triangle | 1 | One damage on matching lane | No effect | To tune |
-| Standard pink square | 1 | No effect | One damage | 25 |
-| Larger armored square | 2 | No effect | One damage per detonation | To tune |
-| Blue rhombus | More than 1; exact value to tune | One damage per eligible beam tick on matching lane | One damage per detonation | To tune |
+| Target | Enemy health | Beam | Bomb inside radius | Contact damage to player | Kill score |
+| --- | --- | --- | --- | --- | --- |
+| Standard green triangle | 1 | One damage on matching lane | No effect | 1 | 10 |
+| Smaller magenta triangle | 1 | One damage on matching lane | No effect | 2 | To tune |
+| Standard pink square | 1 | No effect | One damage | 1 | 25 |
+| Larger armored square | 2 | No effect | One damage per detonation | 1 | To tune |
+| Blue diamond | More than 1; exact value to tune | One damage per eligible beam tick on matching lane | One damage per detonation | 1 | To tune |
 
 The beam pierces: every eligible target on its selected lane is checked,
 including frames when the beam graphic is omitted. Squares do not block the
 ray. Gate damage on `BeamEnabled` and use `Direction`; release afterglow never
 deals damage. Both triangle types die on the first matching beam update.
 
-The rhombus needs a short per-enemy interval between beam hits, so multiple
+The diamond needs a short per-enemy interval between beam hits, so multiple
 health points cannot disappear on consecutive updates. The first beam hit is
 immediate; subsequent hits require the interval to expire and the beam to match
 again. Continue advancing that interval while the beam is aimed elsewhere;
 releasing or redirecting must not reset it early. Keep the beam's continuous
 graphic and sound. The interval's length remains provisional. This gate applies
-only to beam damage on rhombuses; it cannot suppress a bomb hit.
+only to beam damage on diamonds; it cannot suppress a bomb hit.
 
 A bomb checks every active slot once and deals one damage to squares and
-rhombuses within radius. Triangles are immune. Its expanding outline is cosmetic
+diamonds within radius. Triangles are immune. Its expanding outline is cosmetic
 and causes no subsequent damage; there is no moving damage front. A target
 outside the radius takes no bomb damage. Armored squares require two separate
 accepted detonations; a held button or lingering ring cannot supply the second.
 
 Process bomb damage before beam damage, then process center contacts. As an
-initial combination rule, a rhombus may receive one bomb hit and an eligible
+initial combination rule, a diamond may receive one bomb hit and an eligible
 beam hit in the same update if it survives the first hit. Immediately mark a
 zero-health enemy inactive; award score and quota credit exactly once, only on
 death. A nonlethal hit leaves it active and eligible for contact. Contacted
-enemies are removed without score or quota credit. Each surviving contact costs
-one player HP regardless of type or remaining enemy health, saturating at zero;
-there is no player invulnerability mechanic in the baseline.
+enemies are removed without score or quota credit. A small magenta triangle
+deals two player damage on contact; every other type deals one. Contact damage
+does not depend on the enemy's remaining health. Saturate player health at zero,
+including a two-damage contact at one HP; there is no player invulnerability
+mechanic in the baseline.
 
-Show nonlethal damage with a brief hit flash or damaged silhouette. The armored
+Show nonlethal damage with a brief white hit flash. The armored
 square must visibly lose armor after its first bomb, while remaining bomb-only.
 Its damaged state must remain distinguishable from the bomb-range fill cue.
 Reserve the existing destruction burst for the final hit.
@@ -150,6 +152,35 @@ over, and starting/resetting a run clears them.
 Use four decimal score digits stored as two packed-BCD bytes, saturating at 9999. BCD arithmetic must leave decimal mode clear before returning to other code. One scoring routine updates score and decrements the level's remaining kill quota, also saturating at zero. Multiple kills in one update all earn score even if the first exhausts the quota.
 
 Squares change from an outline to a filled silhouette when inside bomb range. This is a shape cue, not only a color change, and introduces no extra graphic object. The cue must use the same radius predicate as bomb damage.
+
+### Proposed ineffective-attack cue
+
+Use a brief gray pulse on the target sprite to signal weapon immunity. Keep its
+shape and position intact, including the square's armor and bomb-range cues.
+Start with six updates of gray (about 0.1 seconds), then restore the type color;
+the exact gray luminance and duration are provisional. It must remain visible,
+distinct from the white successful-hit flash and the moving destruction burst.
+Do not hide the sprite or add another display phase to create the pulse.
+
+Trigger the pulse only when an attack reaches an immune target: an active beam
+on a square's lane, or an accepted bomb with a triangle inside its exact radius.
+For a held beam, allow at most one pulse per target every 24 updates as a starting
+cadence; never restart the six-update timer every frame. This gives a visible
+return to the normal color. Bomb immunity feedback occurs once per detonation.
+
+Missed lanes, out-of-range bombs, cooldown-rejected button presses, release
+afterglow, and the blue diamond's interval between beam hits do not count as
+weapon immunity. The expanding ring cannot retrigger feedback. Resolve all
+combat results before choosing the picture: destruction takes priority over
+successful-hit feedback, which takes priority over immunity feedback. Thus a
+square hit by both weapons shows the bomb's actual result.
+
+The cue is cosmetic: it must not pause movement, alter health, delay a valid
+attack, or change scoring. Advance its state independently of whether the
+sprite is selected for drawing, and clear it on death, slot reuse, and reset.
+Budget per-slot feedback state with health and beam-hit timers during variant
+implementation. Verify both draw phases so the pulse cannot disappear because
+of alternate-frame scheduling.
 
 ## Modes and level transitions
 
@@ -175,7 +206,7 @@ reset or transitions. A burst created by later combat keeps its full lifetime
 for that first picture.
 
 1. Sample and normalize input; handle RESET or non-play mode transitions.
-2. Decrement nonzero cooldown, bomb-animation, spawn, square-spacing, and per-enemy beam-hit timers. A timer set later in this update is not decremented again.
+2. Decrement nonzero cooldown, bomb-animation, spawn, square-spacing, per-enemy beam-hit, and attack-feedback timers. A timer set later in this update is not decremented again.
 3. Move enemies that were active at the start of the update.
 4. Accept a fresh bomb press if ready; set cooldown to 60 and bomb-animation timer to 16. Emit one bomb event for damage and sound.
 5. Resolve bomb damage, eligible beam damage, and surviving center contacts in that order. Award kills only when enemy health reaches zero.
@@ -214,11 +245,12 @@ The current prototype stores eight fields per slot as eight arrays of four bytes
 | `visual_state` | Remaining destruction-burst updates; square fill is derived from radius |
 
 The variant implementation must replace the one-bit square discriminator with
-a type ID for all five variants and allocate remaining health plus the rhombus's
+a type ID for all five variants and allocate remaining health plus the diamond's
 beam-hit interval. Prefer packing/reusing existing per-slot fields after checking
 their lifetimes; update this map and its tests with the implementation. Derive
 speed from type, level, and distance rather than storing another speed byte per
-enemy. Vulnerability, score, sprite, and starting health come from type data.
+enemy. Vulnerability, score, sprite, starting health, and contact damage come
+from type data. Include the proposed attack-feedback state in this allocation.
 
 Attempt a spawn only if there is a free slot, active count is below cap, quota remains, and the spawn timer is zero. Choose a lane and type using a one-byte deterministic LFSR: shift right, XOR with `$B8` when the old low bit was one; seed `$A5` on reset. A host check verifies its nonzero cycle. Determinism enables replayable tests.
 
@@ -239,8 +271,8 @@ With bomb radius 24, contact radius 8, and speed `56/256`, the old square has
 about 73 updates between those boundaries, leaving only about 13 updates beyond
 the 60-update bomb cooldown. Do not reuse that late-level speed for two-hit armor
 without verifying a useful first-hit reaction window and a second ready bomb.
-Test combinations of normal/armored squares and rhombuses against the cooldown;
-rhombuses also offer the beam as an alternative. Exact spacing and weights need
+Test combinations of normal/armored squares and diamonds against the cooldown;
+diamonds also offer the beam as an alternative. Exact spacing and weights need
 playtesting. These bounds assume usable bomb timing, not recovery from every
 wasted bomb.
 
@@ -382,12 +414,14 @@ Host tests verify the integer model and generated data; they do not prove the as
 | Input | All eight directions, neutral, and opposite-axis combinations decode deterministically; neutral disables beam damage and sound. |
 | Release fade | Held beam stays bright; neutral freezes its hue/direction for the 15-update countdown, then clears it. Re-aiming restores brightness immediately. Reset clears afterglow. Bomb animation and enemy scheduling continue during the fade. |
 | Button edges | Held fire causes one bomb; cooldown presses do not queue; activation at `t+59` fails and a fresh press at `t+60` succeeds. Start/reset/transition inputs do not create accidental bombs. |
-| Weapon/type matrix | Both triangle types take beam damage only; both square types take bomb damage only; rhombuses accept either. Immune hits never reduce health or award score. |
-| Beam | Matching-lane triangles die immediately; wrong lanes survive; squares do not block the ray. Rhombus hit cadence works during held/released/re-aimed beam and ring frames. Beam pattern crosses every variant's legal positions. |
+| Weapon/type matrix | Both triangle types take beam damage only; both square types take bomb damage only; diamonds accept either. Immune hits never reduce health or award score. |
+| Beam | Matching-lane triangles die immediately; wrong lanes survive; squares do not block the ray. Diamond hit cadence works during held/released/re-aimed beam and ring frames. Beam pattern crosses every variant's legal positions. |
 | Bomb boundary | With zero movement, an eligible target at `24.00` takes one damage and at `24.01` takes none; square fill agrees. Triangles survive at either radius. Armor survives one bomb and dies to a second; the ring cannot hit again. |
-| Resolution order | Same-frame beam+bomb can damage a rhombus twice if eligible, but grants one kill per target. Lethal attacks prevent contact; a nonlethal hit does not. Multiple surviving contacts reduce player HP without underflow. |
+| Resolution order | Same-frame beam+bomb can damage a diamond twice if eligible, but grants one kill per target. Lethal attacks prevent contact; a nonlethal hit does not. Multiple surviving contacts reduce player HP without underflow. |
+| Contact damage | Small magenta triangles deal two player damage; other enemies deal one. Enemy health and contact damage remain independent. Test one HP, two HP, simultaneous contacts, and a lethal attack on the contact update. |
+| Attack feedback | In-range immune hits pulse gray; real nonlethal hits flash white; kills show the burst. No immunity pulse for misses, rejected bombs, or diamond hit intervals. Held beam pulses cannot lock the sprite gray; both draw phases show the cue. Actual damage wins over simultaneous immunity feedback. |
 | Destruction burst | A scored kill draws all three stages at its final position, awards score once, and expires after 18 updates. Two bursts or a burst plus a live enemy each appear at least every other frame. A reserved burst slot cannot be reused early; reset clears all effects. |
-| Movement | Fractional stepping, subtraction near zero, and every lane/radius mapping are correct. Rhombus speed increases at each inward distance band and stays below the magenta triangle. No variant or burst leaves the arena. |
+| Movement | Fractional stepping, subtraction near zero, and every lane/radius mapping are correct. Diamond speed increases at each inward distance band and stays below the magenta triangle. No variant or burst leaves the arena. |
 | Spawn limits | Never exceed active cap, duplicate a baseline lane, overwrite a live slot, or spin on failed placement. Square spacing is honored. |
 | Fairness | At each speed profile, measure the exact updates from bomb-range entry to contact. Armored squares allow two bombs plus reaction time. Mixed-speed arrivals retain usable bomb windows. |
 | Progression | Multi-kill quota crossing stops spawns, waits for remaining enemies, and enters a 60-update break. Death overrides advancement. Level 99 and score 9999 saturate safely. |
@@ -404,7 +438,7 @@ Use small deterministic fixtures for logic failures, then a longer scripted stre
 | 0 | Pinned build, F8 startup/bank stubs, stable blank ROM | Correct image/vectors and stable frame from either initial bank |
 | 1 | Turret, eight color-cycling beam patterns, one enemy graphic, expanding bomb outline | Cycle schedule and Stella measurements prove the core display and both effect phases |
 | 2 | Input, two-enemy pool/display, movement, combat, HP, score, restart | Rule fixtures pass in the cartridge; two-enemy overlap remains readable |
-| 3a | Revised vulnerabilities, fast triangle, armored square, accelerating blue rhombus | Weapon matrix, hit cadence, movement, readability, and bomb fairness pass at the two-enemy cap |
+| 3a | Revised vulnerabilities, fast triangle, armored square, accelerating blue diamond | Weapon matrix, hit cadence, movement, readability, and bomb fairness pass at the two-enemy cap |
 | 3b | Level table, transitions, and remaining sound cues | Opening levels introduce variants gradually and are playable and fair; baseline hardware pass |
 | 4 | Vertical sprite reuse and three-enemy scheduling | Three-enemy stress cases meet timing and omission limits; enable level 4 density |
 | 5 | Four-enemy scheduling and later-level balancing | Four-enemy cases pass before enabling level 6 density; otherwise retain the measured lower cap |

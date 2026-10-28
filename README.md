@@ -79,10 +79,12 @@ survives. Beam damage continues while held, including ring display frames.
 
 The current ROM's bomb can destroy both triangles and squares. The
 [revised enemy design](docs/PORT_OUTLINE.md#agreed-enemy-variants) changes all
-triangles to beam-only and adds a smaller, fastest-moving magenta triangle,
-a larger square requiring two bombs, and a tougher blue rhombus that takes
-either attack and accelerates toward the turret. These changes are specified
-but not implemented yet.
+triangles to beam-only and adds a smaller, fastest-moving magenta triangle that
+deals two player damage on contact but dies to one beam hit,
+a larger square requiring two bombs, and a tougher blue diamond that takes
+either attack and accelerates toward the turret. A brief gray sprite pulse is
+proposed for ineffective attacks, distinct from a white successful-hit flash.
+These changes are specified but not implemented yet.
 
 Destroyed enemies leave a short burst at the hit position: a white flash, gold
 sparks, then dim red embers over 18 updates (about 0.3 seconds). Kills and score
