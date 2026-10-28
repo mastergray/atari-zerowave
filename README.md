@@ -6,9 +6,9 @@ The cartridge targets NTSC, uses ordinary 8 KiB F8 banking, and needs no extra R
 
 The current build is a playable two-enemy combat prototype: approaching triangles
 and squares, beam and bomb kills, five health points, a four-digit score, and
-start/game-over/restart screens. It uses fixed opening difficulty; levels and
-higher enemy counts come next. The approved thin beam, color cycle, release fade,
-and expanding bomb ring are retained.
+start/game-over/restart screens. It uses fixed opening difficulty; enemy variants,
+levels, and higher enemy counts are planned next. The approved thin beam, color
+cycle, release fade, and expanding bomb ring are retained.
 
 ## Build and run
 
@@ -77,6 +77,13 @@ Bomb damage happens once, immediately on the accepted press, within a fixed
 radius. The expanding ring is visual feedback; an enemy entering it afterward
 survives. Beam damage continues while held, including ring display frames.
 
+The current ROM's bomb can destroy both triangles and squares. The
+[revised enemy design](docs/PORT_OUTLINE.md#agreed-enemy-variants) changes all
+triangles to beam-only and adds a smaller, fastest-moving magenta triangle,
+a larger square requiring two bombs, and a tougher blue rhombus that takes
+either attack and accelerates toward the turret. These changes are specified
+but not implemented yet.
+
 Destroyed enemies leave a short burst at the hit position: a white flash, gold
 sparks, then dim red embers over 18 updates (about 0.3 seconds). Kills and score
 apply immediately. A burst temporarily occupies the old sprite slot, so a new
@@ -139,9 +146,10 @@ Assembly lives in `src/`; `config/` contains tuning and static fixtures;
 `tools/generate_assets.py` produces the shared graphics tables. The independent
 Godot reference checkout in `res/` is ignored by this repository.
 
-Next is combat playtesting, followed by the level table, level transitions, and
-additional hit/death sounds. Keep the two-enemy cap until the later sprite reuse
-work establishes a readable schedule for three or four enemies.
+Next is the revised weapon/type matrix and enemy variants, followed by the level
+table, level transitions, and additional hit/death sounds. Keep the two-enemy cap
+until the later sprite reuse work establishes a readable schedule for three or
+four enemies.
 
 ## Local repository
 
