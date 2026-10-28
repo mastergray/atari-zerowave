@@ -6,13 +6,13 @@ The first playable build must support two active enemies. The implementation res
 
 Implementation status (2026-10-28): the playable ROM includes one beam shot per
 joystick flick, all five enemy variants, health, score, damage/immunity feedback,
-destruction bursts, attack/combat sound cues, and start/game-over/restart. See [play instructions](../README.md)
-and [measured kernel timing](KERNEL_TIMING.md). Difficulty is fixed at two active
-enemies, a 90-update spawn interval, and the provisional type settings below.
-Level quotas/transitions and hardware
-readability remain future work. A separate display-test ROM retains the legacy
-held beam and static SELECT layouts. Level-specific rules below still define
-the full game target and are not enabled yet.
+destruction bursts, attack/combat sound cues, start/game-over/restart, and level
+quotas/transitions. See [play instructions](../README.md) and [measured kernel
+timing](KERNEL_TIMING.md). Eight difficulty rows introduce variants gradually,
+then adjust spawn timing and mix. All rows keep the validated two-enemy cap and
+tested type speeds. Level balancing, higher display densities, and hardware
+readability remain to be validated. A separate display-test ROM retains the
+legacy held beam and static SELECT layouts.
 
 ## Platform and build decisions
 
@@ -99,7 +99,7 @@ Game geometry uses an eight-way lane and a radial distance, not free Cartesian m
 | `LEVEL_BREAK` | 60 updates | Pause after a cleared level |
 | `SQUARE_SPAWN_GAP` | 72 updates | Minimum spacing between square spawns |
 
-Each active enemy subtracts its type's speed for the current level and distance from its fixed-point distance once per update. Speeds are fractional-byte values, so `32` means `32/256` radial units per update. Saturate subtraction at zero; an underflow must never wrap an enemy to the outer rim.
+Each active enemy subtracts its type's speed for its distance from its fixed-point distance once per update. Type speeds remain the same across the current level rows. Speeds are fractional-byte values, so `32` means `32/256` radial units per update. Saturate subtraction at zero; an underflow must never wrap an enemy to the outer rim.
 
 The current type speeds are 32/256 for standard triangles/squares, 80/256 for
 magenta triangles, and 20/256 for armored squares. Diamonds use 32/256 at radius
@@ -230,7 +230,7 @@ reserve byte and does not change the sprite schedule.
 
 A fresh run sets level 1, HP 5, score zero, bomb ready, empty enemy pool, cleared effect timers, and a deterministic nonzero random seed. It loads the first level row and starts its spawn countdown. It does not consume an attack from the start/reset input.
 
-When the kill quota reaches zero, stop spawning but keep `PLAY` active until all remaining enemies are killed or reach the center. Apply all contacts before deciding the next mode. Death takes priority over level completion. At the end of `LEVEL_BREAK`, reset spawn/bomb/effect timers for the new level, preserve HP/score, and retain input history. Existing enemies never have their speed changed by a level transition because the arena must be empty first.
+When the kill quota reaches zero, stop spawning but keep `PLAY` active until all remaining enemies are killed or reach the center and all destruction bursts finish. Apply all contacts before deciding the next mode. Death takes priority over level completion. Entering `LEVEL_BREAK` increments the displayed level (saturating at 99). At its end, reset spawn/bomb/effect timers for the new level, preserve HP/score and RNG, and retain input history. The arena must be empty first.
 
 Entering `LEVEL_BREAK` sets its counter to 60; each following update decrements it once and the update that reaches zero loads the next level. A non-play mode handler or RESET consumes that update, so it cannot also execute combat/spawning in the newly entered `PLAY` mode. Every exit path commits the sampled input history.
 
@@ -296,8 +296,8 @@ movement, attacks, cooldowns, and the surviving enemies continue normally.
 
 Do not place two enemies in the same lane in the baseline. For each attempt, choose a starting lane and examine at most eight lanes cyclically. Reject occupied lanes and arrangements forbidden by the validated renderer. If none are permitted, defer the spawn eight updates; do not add a hidden enemy or retry indefinitely. A successful spawn reloads the level's spawn interval. Track actual encounter density in playtests so scheduling restrictions do not silently erase the intended difficulty increase.
 
-The initial spawn table proposes triangles 3/8, fast triangles 2/8, diamonds
-1/8, squares 1/8, and armor 1/8. The eight-entry table is in `config/tuning.json`.
+Level 4's spawn table chooses triangles 3/8, fast triangles 2/8, diamonds
+1/8, squares 1/8, and armor 1/8. Each eight-entry row is in `config/levels.json`.
 Both square variants share the 72-update spacing timer. Additionally, only one
 bomb-only enemy may be active at a time; a rejected square/armor selection falls
 back to a standard triangle. This makes actual type frequencies conditional on
@@ -316,28 +316,35 @@ wasted bomb.
 
 ## Level data and increasing density
 
-The original level rows below contain `requested_cap`, `kill_quota`,
-`spawn_interval`, `speed_fraction`, and `square_weight` out of four. They remain
-a historical tuning reference for standard triangles and squares. The current
-variant playtest uses the per-type weights and speeds above. Level integration
-must use those type profiles instead of `square_weight`,
-introducing the new types gradually. Do not enable new variants using these old
-fairness assumptions unchanged. No runtime difficulty formula is needed.
+`config/levels.json` is the source for `cap`, `quota`, `spawn_interval`, and eight
+weighted `types` per row. Generated tables use the tested type profiles; no
+runtime difficulty formula or global speed multiplier is needed. The candidate
+rows with faster squares and unvalidated three/four-enemy caps are replaced by
+these opening progression settings:
 
-| Level | Requested cap | Kill quota | Spawn interval in updates | Speed fraction | Square weight |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 1 | 2 | 8 | 90 | 32 | 1/4 |
-| 2 | 2 | 10 | 75 | 40 | 1/4 |
-| 3 | 2 | 12 | 60 | 48 | 1/4 |
-| 4 | 3 | 12 | 60 | 48 | 1/4 |
-| 5 | 3 | 14 | 54 | 48 | 2/4 |
-| 6 | 4 | 14 | 54 | 48 | 2/4 |
-| 7 | 4 | 16 | 48 | 56 | 2/4 |
-| 8 onward | 4 | 18 | 42 | 56 | 2/4 |
+| Level | Cap | Kill quota | Spawn interval (updates) | Weights: triangle / fast / diamond / square / armor |
+| --- | ---: | ---: | ---: | --- |
+| 1 | 2 | 8 | 90 | 6 / 0 / 0 / 2 / 0 |
+| 2 | 2 | 10 | 90 | 5 / 2 / 0 / 1 / 0 |
+| 3 | 2 | 10 | 90 | 4 / 2 / 0 / 1 / 1 |
+| 4 | 2 | 12 | 90 | 3 / 2 / 1 / 1 / 1 |
+| 5 | 2 | 12 | 75 | 3 / 2 / 1 / 1 / 1 |
+| 6 | 2 | 14 | 75 | 2 / 2 / 2 / 1 / 1 |
+| 7 | 2 | 16 | 60 | 2 / 2 / 2 / 1 / 1 |
+| 8 onward | 2 | 18 | 54 | 2 / 2 / 2 / 1 / 1 |
 
-Levels 4 and 6 introduce density without also raising speed. These are candidate assignments, subject to playtesting. Development builds clamp unvalidated caps and identify the configured limit in their build report. Demonstrating the accepted later-level density goal requires validating at least three simultaneous enemies; a build clamped permanently at two only completes the baseline milestone.
+All weights are out of eight, before bomb-only spacing/cap restrictions. Enemy
+speeds remain unchanged across these rows. Armor therefore retains about 205
+updates between bomb range and contact, against a 60-update bomb cooldown.
+Promote higher caps into later rows only after validating their rendering and
+arrival fairness. The loader clamps requested caps to `VALIDATED_ENEMY_CAP`;
+this two-enemy build completes baseline progression, not the later density goal.
 
-After level 8, reuse the final difficulty row. Track a displayed level number up to 99, saturating there without stopping play. Derive the data row as `min(level, 8)`; never index beyond the table. Further difficulty tuning must remain within tested density and bomb-response bounds.
+Store the displayed level as packed BCD `01..99`; increment with decimal mode
+only for that operation, then clear it. After level 8, reuse the final row.
+Level 99 repeats indefinitely without wrapping or indexing beyond the tables.
+The row's type offset is eight times its zero-based index, allowing a random
+three-bit selection without a multiplication or indirect pointer at spawn time.
 
 ## Beam and enemy rendering
 
@@ -385,7 +392,11 @@ The exact reuse gaps and accepted lane combinations are outputs of kernel testin
 
 ## HUD and sound
 
-Display four score digits, five health marks, a bomb-ready mark, and the level number. Keep text compact; there are no menus, upgrade screens, or run statistics. Readiness is lit at zero cooldown, health marks disappear as HP falls, and title/game-over screens reuse the same small font/graphics.
+Display four score digits, five health marks, a bomb-ready mark, and `LV 01..99`
+during play and level breaks. Title/game-over reuse `FIRE`/`OVER` in that space.
+The break shows the upcoming level while keeping health and score visible.
+Keep text compact; there are no menus, upgrade screens, or run statistics.
+Readiness is lit at zero cooldown and health marks disappear as HP falls.
 
 Use two sound channels: one short beam-shot cue and one prioritized event cue.
 Trigger the beam envelope once per shot, never continuously while held; stick
@@ -411,21 +422,29 @@ Tune timbre on hardware; music remains outside scope.
 
 ## RAM allocation
 
-The current map uses the full available address range, with explicit reserve and stack space. Generate symbols and fail the build on overlap. Reclaim prototype diagnostics and revise the shared lifetimes when adding joystick rearm/shot-event, variant, level, and audio state.
+The current map uses the full available address range, with explicit guard and
+stack space. Generate symbols and fail the build on overlap. Level state reuses
+the diagnostic layout byte and the final two general reserves; future density
+work must revise allocations or lifetimes before adding persistent state.
 
 | Address range | Bytes | Allocation |
 | --- | ---: | --- |
 | `$80–$9F` | 32 | Four enemy slots, eight arrays of four bytes |
-| `$A0–$AF` | 16 | Diagnostic layout ID, frame counter, bomb count, mode, HP, two score bytes, spawn timer, square timer, RNG, active count, cap, movement enable, spawn interval, beam palette index, beam rearm latch |
+| `$A0–$AF` | 16 | BCD level number (diagnostic layout ID), frame counter, bomb count, mode, HP, two score bytes, spawn/break timer, square timer, RNG, active count, cap, movement enable, spawn interval, beam palette index, beam rearm latch |
 | `$B0–$B7` | 8 | Direction, last direction, previous button/reset bits, beam enable, bomb cooldown, bomb-animation timer, bomb event, frame phase |
-| `$B8–$BF` | 8 | Two HUD health masks, beam-shot timer, player-hit timer, event sound ID/timer/request, one reserve |
-| `$C0–$D7` | 24 | Renderer pointers, row bytes, and draw/HUD state |
+| `$B8–$BF` | 8 | Two HUD health masks, beam-shot timer, player-hit timer, event sound ID/timer/request, remaining kill quota |
+| `$C0–$D7` | 24 | Renderer pointers, row bytes, draw/HUD state, and level type-table offset |
 | `$D8–$E7` | 16 | Ten HUD score row bytes, four status-pointer bytes, draw-age temporary, general temporary; logic scratch aliases the HUD storage during overscan |
 | `$E8–$EF` | 8 | Unallocated margin; guard pattern in debug builds |
 | `$F0–$FF` | 16 | Stack reservation |
 | Total | 128 | Includes stack and margin |
 
-The 24 renderer bytes currently hold four two-byte playfield pointers, a two-byte sprite pointer, selected slot, HUD color, arena color, display-pattern ID, four beam visual bytes (fade timer, frozen hue, draw direction, draw color), a two-byte ball-motion pointer, two ball row bounds, a kernel selector, and one reserved byte. Later sprite reuse must fit or explicitly revise this allocation. Scratch can be reused only across nonoverlapping lifetimes; record clobbered registers and scratch in each routine's header. ROM switching does not preserve a second copy of RAM.
+The 24 renderer bytes currently hold four two-byte playfield pointers, a two-byte sprite pointer, selected slot, HUD color, arena color, display-pattern ID, four beam visual bytes (fade timer, frozen hue, draw direction, draw color), a two-byte ball-motion pointer, two ball row bounds, a kernel selector, and the level type-table offset. Later sprite reuse must fit or explicitly revise this allocation. Scratch can be reused only across nonoverlapping lifetimes; record clobbered registers and scratch in each routine's header. ROM switching does not preserve a second copy of RAM.
+
+During play/break, the two HUD status pointers select ROM glyphs for the level's
+tens and ones digits. The status scanline combines them through `Temp`, after
+render preparation has finished using that scratch. Title/game-over instead use
+the original two text pointers. No new HUD RAM buffer is allocated.
 
 The game commits `PreviousButtons` before render preparation overwrites the sampled-input scratch with HUD rows. Movement/spawn scratch is also dead by then. Persistent health, score, timers, input history, enemy positions and beam state never alias those HUD buffers.
 
@@ -464,6 +483,7 @@ build, combat, display, generation, and cartridge-test subset:
 | `src/ram.inc` and `src/constants.inc` | State allocation and fixed hardware/game constants |
 | `src/input.asm`, `src/game.asm`, `src/play.asm` | Input decoding, frame orchestration and playable mode/update order |
 | `src/enemies.asm`, `src/combat.asm` | Slot pool, spawning, movement, hits, score/quota |
+| `src/levels.asm` | Table loading, level increment, and break entry |
 | `src/audio.asm` | Sound state and event priorities |
 | `config/audio.json` | Prioritized event envelopes and TIA register segments |
 | `src/render.asm`, `src/hud.asm`, `src/frame.asm`, `src/kernel.asm` | Bank-0 display preparation and positioning; bank-1 synchronization and timed screen output |
@@ -521,8 +541,8 @@ Use small deterministic fixtures for logic failures, then a longer scripted stre
 | 1 | Turret, eight color-cycling beam patterns, one enemy graphic, expanding bomb outline | Cycle schedule and Stella measurements prove the core display and both effect phases |
 | 2 | Input, two-enemy pool/display, movement, combat, HP, score, restart | Rule fixtures pass in the cartridge; two-enemy overlap remains readable |
 | 3a | One beam shot per joystick flick, revised vulnerabilities, fast triangle, armored square, accelerating blue diamond | Shot input/fade, weapon matrix, movement, readability, and bomb fairness pass at the two-enemy cap |
-| 3b | Level table, transitions, and sound balancing (combat cues implemented) | Opening levels introduce variants gradually and are playable and fair; baseline hardware pass |
-| 4 | Vertical sprite reuse and three-enemy scheduling | Three-enemy stress cases meet timing and omission limits; enable level 4 density |
-| 5 | Four-enemy scheduling and later-level balancing | Four-enemy cases pass before enabling level 6 density; otherwise retain the measured lower cap |
+| 3b | Level table, transitions, and combat cues implemented; balance playtest remains | Opening levels introduce variants gradually and are playable and fair; baseline hardware pass |
+| 4 | Vertical sprite reuse and three-enemy scheduling | Three-enemy stress cases meet timing and omission limits; promote a later level to the validated cap |
+| 5 | Four-enemy scheduling and later-level balancing | Four-enemy cases pass before enabling higher-density rows; otherwise retain the measured lower cap |
 
 Implement milestones in order. If milestone 1 fails, revise the kernel while keeping eight-way beam and button bomb behavior. If higher densities fail, adjust scheduling and spawn arrangements or keep the lower validated cap; do not restore removed visual effects to compensate. Charge bombs, trails, reflectors, shifters, XP, and upgrades remain outside this implementation.

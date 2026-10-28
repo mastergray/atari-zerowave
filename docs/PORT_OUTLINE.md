@@ -167,8 +167,10 @@ Preserve the eight-way beam and bomb button throughout those experiments. After 
 The playable prototype now implements all five variants, one beam shot per
 joystick flick, automatic shot fades, the revised vulnerabilities, vivid immunity
 and hit feedback, red player-damage flashes, attack/combat/game-over sounds,
-health, score, destruction bursts, and restart. It uses fixed
-difficulty with all types available for playtesting and at most one bomb-only
-enemy active. Level progression, hardware readability, and later-level enemy
-counts remain to be validated. The earlier static display fixtures and held-beam
+health, score, destruction bursts, and restart. Eight difficulty rows introduce
+the variants across the first four levels, then increase spawn frequency and
+diamond weight. Kill quotas, one-second level breaks, and an `LV 01..99` HUD are
+implemented, retaining health and score between levels. All rows keep the
+two-enemy cap and at most one bomb-only enemy active. Level balancing, hardware
+readability, and higher enemy counts still need validation. The earlier static display fixtures and held-beam
 behavior remain available in a separate diagnostic ROM.

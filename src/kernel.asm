@@ -56,6 +56,11 @@ ScoreHudLoop:
     sta PF2
     sta WSYNC             ; line 13
     ldy #0
+    lda GameMode
+    cmp #MODE_PLAY
+    beq LevelHudLoop
+    cmp #MODE_LEVEL_BREAK
+    beq LevelHudLoop
     MAC STATUS_SCANLINE
     lda #COLOR_TURRET
     sta COLUPF            ; 5
@@ -82,6 +87,35 @@ StatusHudLoop:
     iny
     cpy #5
     bne StatusHudLoop
+    jmp HudStatusDone
+    MAC LEVEL_SCANLINE
+    lda #COLOR_TURRET
+    sta COLUPF            ; 5
+    lda LevelLabel,y
+    sta PF1               ; 12, LV
+    lda (HudStatus1),y
+    sta Temp              ; tens digit; renderer scratch is finished
+    lda (HudStatus2),y
+    ora Temp
+    sta PF2               ; 31, before left PF2 begins displaying
+    lda BombHud1,y
+    nop
+    sta PF1               ; 40
+    lda HudColor
+    nop
+    sta COLUPF            ; 48
+    lda BombHud2,y
+    sta PF2               ; 55
+    ENDM
+LevelHudLoop:
+    sta WSYNC             ; lines 14..23: LV 01..99 and BOMB
+    LEVEL_SCANLINE
+    sta WSYNC
+    LEVEL_SCANLINE
+    iny
+    cpy #5
+    bne LevelHudLoop
+HudStatusDone:
     ENDIF
     ldx #8
 SeparatorLoop:

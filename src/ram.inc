@@ -14,6 +14,7 @@ EnemyVisual     ds 4
 ; lifetime (yellow/orange immunity shake when bit 7 is clear). Zero is normal.
 ; Prototype diagnostics occupy future game-state bytes.
 LayoutId        ds 1
+LevelNumber = LayoutId  ; packed BCD 01..99 in gameplay, SELECT fixture in diagnostics
 FrameCounter    ds 1
 BombCount       ds 1
 GameMode        ds 1
@@ -46,6 +47,7 @@ PlayerHitTimer = AudioReserved+1
 EventSoundId = AudioReserved+2
 EventSoundTimer = AudioReserved+3
 SoundRequest = AudioReserved+4
+KillsRemaining = AudioReserved+5
 BeamLeft1       ds 2
 BeamLeft2       ds 2
 BeamRight0      ds 2
@@ -64,6 +66,7 @@ BeamMinY        ds 1
 BeamMaxY        ds 1
 BallKernel      ds 1
 RenderReserved  ds 1
+LevelTypeOffset = RenderReserved
 ; HUD buffers live only during display. Logic scratch aliases their storage.
 HudScoreLeft    ds 5
 HudScoreRight   ds 5

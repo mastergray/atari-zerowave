@@ -129,4 +129,8 @@ AwardScore:
 .store:
     sta ScoreHi
     cld
+    lda KillsRemaining
+    beq .done
+    dec KillsRemaining
+.done:
     rts

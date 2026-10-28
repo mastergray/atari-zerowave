@@ -36,6 +36,10 @@ def check(display=False):
             assert (address & 255) + 23 < 256, f"Page crossing: {name}"
         elif name.startswith(("HudText", "BombHud")):
             assert (address & 255) + 4 < 256, f"Page crossing: {name}"
+        elif name in ("LevelDigitTens", "LevelDigitOnes"):
+            assert (address & 255) + 49 < 256, f"Page crossing: {name}"
+        elif name == "LevelLabel":
+            assert (address & 255) + 4 < 256, f"Page crossing: {name}"
         elif name.startswith("Sprite") or name in ("BurstFlash", "BurstSparks", "BurstEmbers"):
             assert address & 255 in (0, 88), f"Bad paired sprite offset: {name}"
             assert (address & 255) + 76 + 6 + 79 < 256, f"Sprite page crossing: {name}"
@@ -44,7 +48,8 @@ def check(display=False):
         "rom_bytes": len(rom), "sha256": hashlib.sha256(rom).hexdigest(),
         "assembler_pin": "DASM 2.20.14.1", "enemy_slots": 4,
         "prototype_display_cap": 2, "display_test": display,
-        "combat_difficulty": "fixed opening settings; no level progression yet",
+        "combat_difficulty": "static fixtures" if display else "table-driven levels; validated cap of two",
+        "levels": None if display else manifest["levels"],
         "bank_bytes_before_tail": [sym[f"Bank{bank}End"] - 0xf000 for bank in (0, 1)],
         "bank_headroom_before_tail": [0xff80 - sym[f"Bank{bank}End"] for bank in (0, 1)],
         "beam_streams": manifest["unique_beam_streams"],

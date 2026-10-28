@@ -1,9 +1,9 @@
 # Prototype kernel timing
 
-This records the playable two-enemy variant prototype with flick-to-fire beams and
+This records the playable two-enemy variant prototype with flick-to-fire beams, levels, and
 the separate static display-test ROM. Measurements were taken from the assembled
 F8 cartridges with the py65 harness and Stella 6.0.2. They do not certify
-television readability or the future level and larger-enemy-count paths.
+television readability or the future larger-enemy-count paths.
 
 ## Frame layout
 
@@ -11,14 +11,14 @@ television readability or the future level and larger-enemy-count paths.
 | --- | ---: | --- |
 | VSYNC | 3 | Vertical synchronization |
 | VBLANK | 37 | HUD preparation, beam/ring pointers, enemy selection and positioning |
-| HUD | 24 | Four score digits, five health marks, FIRE/PLAY/OVER and BOMB |
+| HUD | 24 | Four score digits, five health marks, FIRE/LV 01..99/OVER and BOMB |
 | Separator | 8 | Clear HUD graphics; prepare arena |
 | Arena | 160 | 80 logical rows, each drawn twice |
 | Overscan | 30 | Input, movement, attacks, contacts, spawning, beam/fade and sound |
 | Total | 262 | 19,912 CPU cycles at 76 cycles per line |
 
 Stella's `_cycleslo` increases by 19,912 per frame across direction changes,
-all animation frames, combat, spawning, start/restart, and cooldown waits.
+all animation frames, combat, spawning, start/restart, level transitions, and cooldown waits.
 The host harness checks 262-line frames through a scripted survival run and
 boundary fixtures. The diagnostic ROM also exercises all eleven static layouts.
 Both possible F8 startup banks enter the same reset path.
@@ -33,20 +33,27 @@ models the behavior in [Stella's RIOT implementation](https://github.com/stella-
 ## Playable HUD
 
 HUD lines 0–1 and 12–13 are blank. Lines 2–11 display four score digits on the
-left and health marks on the right; lines 14–23 display FIRE, PLAY or OVER on
+left and health marks on the right; lines 14–23 display FIRE, LV 01..99 or OVER on
 the left and the colored BOMB label on the right. Each font row lasts two lines.
 The diagnostic ROM retains its TEST/BOMB header.
 
 | Region | Left PF1 / PF2 completion | Right PF1 / PF2 completion | Color |
 | --- | --- | --- | --- |
 | Score and health | Cycles 12 / 19 | Cycles 43 / 53 | White at cycle 5 |
-| Status and bomb | Cycles 13 / 21 | Cycles 40 / 55 | White at 5, bomb-ready color at 48 |
+| Title/game-over and bomb | Cycles 13 / 21 | Cycles 40 / 55 | White at 5, bomb-ready color at 48 |
+| Level and bomb | Cycles 12 / 31 | Cycles 40 / 55 | White at 5, bomb-ready color at 48 |
 
 PF0 remains clear. Render preparation converts packed BCD into ten score-row
 bytes and selects two status pointers. These occupy `$D8–$E5` only during
 display; input and spawn scratch can reuse them during overscan after the last
 visible line. The input history is committed before HUD preparation overwrites
 the samples. Health masks use two previously reserved audio bytes.
+
+For play and level breaks, the status pointers select the level's tens and ones
+glyphs in two page-safe 50-byte ROM tables. A separate status scanline combines
+these through `Temp`, whose render-selection lifetime has finished, and draws
+the fixed `LV` label. PF2 completes at cycle 31, before its left-half display
+begins. Both digits remain visible every frame; the HUD still takes 24 lines.
 
 ## Arena scanline schedule
 
@@ -231,7 +238,7 @@ hit, rejection, and bomb. Requests are coalesced before playback; higher/equal
 priority replaces a running envelope, while lower-priority events are discarded.
 
 Event ID, remaining updates, and this-update request use three former reserve
-bytes at `$BC–$BE`; `$BF` remains reserved. Sound timers never drive damage or
+bytes at `$BC–$BE`; `$BF` now holds the level kill quota. Sound timers never drive damage or
 visuals. Fatal-hit cleanup stops the beam but lets the game-over tone finish;
 reset/restart clears both voices. The separate display ROM keeps its original
 audio behavior. Tests check exact TIA register envelopes, silence after expiry,
@@ -245,29 +252,48 @@ silence. `build/audio-captures/report.json` records the ROM hash and WAV paths;
 the capture script and isolated settings are retained alongside it. This checks
 emulated audio output, not the user's speaker routing or real Atari sound.
 
+## Level progression
+
+`LevelNumber` aliases diagnostic `LayoutId` at `$A0`, `KillsRemaining` uses `$BF`,
+and the eight-entry type-row offset uses former render reserve `$D7`. The spawn
+countdown doubles as the 60-update break timer. These lifetimes leave the guard
+and stack untouched. The level number uses BCD, saturates at 99, and maps every
+level above eight to the final table row.
+
+Quota exhaustion prevents spawning in the same update, but all slots still
+resolve damage/contact and receive score. Death wins over level completion.
+Advancement waits for both live targets and destruction bursts to finish, then
+shows the next level for 60 updates. Loading resets the arena and combat effects,
+retains HP/score/RNG/input history, and consumes that update without spawning or
+attacking. All eight rows retain the tested type speeds and a two-enemy cap.
+
 ## Space and update budgets
 
 | Resource | Current measurement |
 | --- | --- |
-| Bank 0 end / room before trampoline | `$FB5F` / 1,057 bytes |
-| Bank 1 end / room before trampoline | `$FD3D` / 579 bytes |
+| Bank 0 end / room before trampoline | `$FC3E` / 834 bytes |
+| Bank 1 end / room before trampoline | `$FDF2` / 398 bytes |
 | Cartridge | 8,192 bytes, identical bank tails and vectors |
 | RAM | Fixed 128-byte map, including reserves and stack |
 | Stack | Eight bytes observed; 16 reserved |
 | Guard | Eight bytes at `$E8–$EF`, intact in tested runs |
-| Update cost | 330–1,321 cycles from `GameFrame` to `LogicDone` |
-| Render preparation done | 1,392–1,696 cycles from VSYNC line start |
+| Update cost | 334–1,328 cycles from `GameFrame` to `LogicDone` |
+| Render preparation done | 1,468–1,696 cycles from VSYNC line start |
 
-The combat suite records 6,760 frame samples in `build/combat-timing.json`,
+The combat suite records 13,472 frame samples in `build/combat-timing.json`,
 including a survival run of at least 1,400 frames across all five types, movement/attack/contact boundaries, scoring,
-spawning, immunity/hit feedback, destruction bursts, HUD values, and restart. Tests enforce the 2,000-cycle update and
-2,400-cycle preparation limits. The static diagnostic build has 1,673 bytes free
+spawning, immunity/hit feedback, destruction bursts, HUD values, and restart.
+A second natural run completes the first four levels with all variants seen and
+no player damage. Fixtures check quotas, exact breaks, carry/saturation at levels
+09/10/99, per-row spawning, input history, and death/reset priority.
+Tests enforce the 2,000-cycle update and
+2,400-cycle preparation limits. The static diagnostic build has 1,497 bytes free
 in bank 0 and 456 in bank 1.
 
 Four 64-byte magnitude tables live in bank 0. Cardinal/diagonal signs reconstruct
 all eight lanes there; cached sprite coordinates cross into the render bank.
-This preserves its remaining space for later HUD/display work. Level state
-and sprite reuse still require fresh RAM/timing budgets.
+This preserves its remaining space for later HUD/display work. Sprite reuse
+still requires fresh RAM/timing budgets.
 
 ## Display limits and evidence
 
@@ -307,6 +333,10 @@ every red-flash stage through game over and reset.
 Its debugger state confirms
 score awards, event sound selection/countdown, and start/reset input handling. It uses explicit RAM fixtures only
 for boundary cases, after first exercising natural spawning and movement.
+The level pass adds 19 snapshots covering the last kill/burst, the upcoming-level
+HUD, the exact break boundary, held/fresh controls, levels 04/09/10/99, final-row
+reuse, fatal contacts, and reset to 01. Its states and captures are indexed by
+`build/stella/latest-levels.json`.
 Real hardware
 flicker and audio remain untested. Advancing
 to three enemies requires vertical sprite reuse and new timing/visibility

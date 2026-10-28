@@ -33,6 +33,7 @@ class CombatTests(unittest.TestCase):
         if frozen:
             m.poke("MovementEnabled", 0)
             m.poke("SpawnTimer", 255)
+            m.poke("KillsRemaining", 255)  # isolate combat fixtures from level completion
         return m
 
     def frame(self, m, mask=0, **buttons):
@@ -678,7 +679,7 @@ class CombatTests(unittest.TestCase):
         self.frame(m)  # t+60, no fresh press
         self.frame(m, fire=True)
         self.assertEqual(m.value("BombCount"), 2)
-        self.assertEqual(m.value("LayoutId"), 0)
+        self.assertEqual(m.value("LevelNumber"), 1)
         self.assertEqual(m.value("ActiveCount"), 0)
         m = self.game()
         self.frame(m, fire=True)
@@ -801,6 +802,11 @@ class CombatTests(unittest.TestCase):
 
     def test_scripted_survival_keeps_two_enemies_visible_and_timing_stable(self):
         m = self.game(False)
+        m.poke("LevelNumber", 4)  # all types; progression is covered separately
+        m.poke("GameMode", 3)
+        m.poke("SpawnTimer", 1)
+        self.frame(m)
+        m.poke("KillsRemaining", 255)
         kinds, awards = set(), set()
         previous_score = 0
         for elapsed in range(3000):
@@ -835,6 +841,211 @@ class CombatTests(unittest.TestCase):
         self.assertTrue({10, 20, 25, 40, 50} <= awards)
         self.assertEqual(m.value("Health"), 5)
         self.assertEqual(m.value("GameMode"), 1)
+
+    def test_level_rows_load_preserving_run_state_and_reset_effects(self):
+        levels = assets.load_levels()["levels"]
+        for number in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 99):
+            m = self.game()
+            m.poke("LevelNumber", int(str(number), 16))
+            m.poke("Health", 3)
+            m.poke("ScoreHi", 0x12)
+            m.poke("ScoreLo", 0x34)
+            m.poke("RandomState", 0x51)
+            m.poke("PreviousButtons", 128)
+            m.poke("BeamArmed", 0)
+            for name in ("BombCooldown", "BombTimer", "SquareTimer", "PlayerHitTimer", "BeamFadeTimer",
+                         "ShotSoundTimer", "EventSoundId", "EventSoundTimer", "SoundRequest"):
+                m.poke(name, 1)
+            self.enemy(m, 0, 2, 30)
+            m.call("LoadLevel")
+            row = levels[min(number, len(levels)) - 1]
+            self.assertEqual(m.value("LevelTypeOffset"), (min(number, len(levels)) - 1) * 8)
+            self.assertEqual(m.value("KillsRemaining"), row["quota"])
+            self.assertEqual(m.value("ActiveCap"), min(row["cap"], 2))
+            self.assertEqual(m.value("SpawnInterval"), row["spawn_interval"])
+            self.assertEqual(m.value("SpawnTimer"), row["spawn_interval"])
+            self.assertEqual((m.value("Health"), self.score(m), m.value("RandomState")), (3, 1234, 0x51))
+            self.assertEqual((m.value("PreviousButtons"), m.value("BeamArmed")), (128, 0))
+            for name in ("BombCooldown", "BombTimer", "SquareTimer", "PlayerHitTimer", "BeamFadeTimer",
+                         "ShotSoundTimer", "EventSoundId", "EventSoundTimer", "SoundRequest", "ActiveCount"):
+                self.assertEqual(m.value(name), 0, name)
+            self.assertEqual(bytes(m.bus.ram[:32]), bytes(32))
+
+    def test_level_quota_counts_kills_only_and_multi_kills_saturate(self):
+        m = self.game()
+        m.poke("KillsRemaining", 1)
+        self.enemy(m, 0, 2, 20, kind=2)
+        self.frame(m, 8)
+        self.assertEqual(m.value("KillsRemaining"), 1)  # nonlethal damage
+        self.frame(m)  # rearm before testing an ineffective shot
+        self.enemy(m, 1, 6, 40, kind=4)
+        self.frame(m, 4)
+        self.assertEqual(m.value("KillsRemaining"), 1)
+        m.poke("EnemyRadiusHi", 8, 1)
+        self.frame(m)  # contact is not a kill
+        self.assertEqual((m.value("KillsRemaining"), m.value("Health")), (1, 4))
+        for slot, lane in enumerate((2, 6)):
+            self.enemy(m, slot, lane, 20, kind=4)
+        m.poke("SpawnTimer", 0)
+        self.frame(m, fire=True)
+        self.assertEqual(m.value("KillsRemaining"), 0)
+        self.assertEqual(self.score(m), 50)
+        self.assertEqual(m.value("ActiveCount"), 0)
+        self.assertEqual(m.value("GameMode"), 1)  # final bursts still visible
+        self.assertEqual(m.value("SpawnTimer"), 0)
+        for _ in range(17):
+            self.frame(m)
+            self.assertEqual(m.value("ActiveCount"), 0)
+            self.assertEqual(m.value("KillsRemaining"), 0)
+            self.assertEqual(self.score(m), 50)
+
+    def test_level_completion_waits_for_survivors_and_bursts_then_exact_break(self):
+        m = self.game()
+        m.poke("KillsRemaining", 1)
+        m.poke("SpawnTimer", 0)
+        self.enemy(m, 0, 2, 40)
+        self.enemy(m, 1, 6, 40, kind=4)
+        self.frame(m, 8)
+        for _ in range(20):
+            self.frame(m, 8)
+            self.assertEqual(m.value("GameMode"), 1)
+            self.assertEqual(m.value("ActiveCount"), 1)
+        m.poke("EnemyRadiusHi", 8, 1)  # last survivor reaches turret
+        self.frame(m, 8, fire=True)
+        # The bomb kills it before contact, and its final burst must finish too.
+        self.assertEqual((m.value("Health"), self.score(m)), (5, 35))
+        for _ in range(17):
+            self.frame(m, 8, fire=True)
+            self.assertEqual(m.value("GameMode"), 1)
+        self.frame(m, 8, fire=True)
+        self.assertEqual((m.value("GameMode"), m.value("LevelNumber"), m.value("SpawnTimer")), (3, 2, 60))
+        for left in range(59, 0, -1):
+            self.frame(m, 8, fire=bool(left & 1))  # fresh presses must not skip the break
+            self.assertEqual((m.value("GameMode"), m.value("SpawnTimer")), (3, left))
+            self.assertEqual((m.value("ActiveCount"), m.value("BeamEvent")), (0, 0))
+        self.frame(m, 8, fire=True)
+        self.assertEqual((m.value("GameMode"), m.value("KillsRemaining"), m.value("SpawnTimer")), (1, 10, 90))
+        self.assertEqual((m.value("Health"), self.score(m), m.value("BombCooldown")), (5, 35, 0))
+        self.assertEqual((m.value("BeamEvent"), m.value("BombEvent")), (0, 0))
+        self.frame(m, 8, fire=True)
+        self.assertEqual((m.value("BeamEvent"), m.value("BombEvent")), (0, 0))
+        self.frame(m)
+        self.frame(m, 8, fire=True)
+        self.assertEqual((m.value("BeamEvent"), m.value("BombEvent")), (1, 1))
+
+    def test_level_death_beats_completion_and_contacts_do_not_advance_quota(self):
+        for order in (False, True):
+            m = self.game()
+            m.poke("Health", 1)
+            m.poke("KillsRemaining", 1)
+            self.enemy(m, int(order), 2, 40)
+            self.enemy(m, int(not order), 6, 8, kind=4)
+            self.frame(m, 8)
+            self.assertEqual((m.value("GameMode"), m.value("LevelNumber")), (2, 1))
+            self.assertEqual((self.score(m), m.value("KillsRemaining")), (10, 0))
+            self.assert_sound(m, "death")
+            for _ in range(80):
+                self.frame(m)
+                self.assertEqual((m.value("GameMode"), m.value("LevelNumber")), (2, 1))
+        m = self.game()
+        m.poke("KillsRemaining", 1)
+        self.enemy(m, 0, 6, 8)
+        self.frame(m)
+        self.assertEqual((m.value("KillsRemaining"), self.score(m), m.value("GameMode")), (1, 0, 1))
+        m.poke("KillsRemaining", 0)
+        self.enemy(m, 0, 6, 8)
+        self.frame(m)
+        self.assertEqual((m.value("Health"), m.value("GameMode"), m.value("LevelNumber")), (3, 3, 2))
+
+    def test_level_bcd_increment_saturation_and_reset_from_break(self):
+        for start, expected in ((1, 2), (8, 9), (9, 10), (19, 20), (98, 99), (99, 99)):
+            m = self.game()
+            m.poke("LevelNumber", int(str(start), 16))
+            m.poke("KillsRemaining", 0)
+            m.poke("Health", 3)
+            m.poke("ScoreHi", 0x99)
+            m.poke("ScoreLo", 0x99)
+            self.frame(m)
+            self.assertEqual(m.value("LevelNumber"), int(str(expected), 16))
+            for _ in range(60):
+                self.frame(m)
+            self.assertEqual(m.value("GameMode"), 1)
+            self.assertEqual((m.value("Health"), self.score(m)), (3, 9999))
+            self.assertEqual(m.value("LevelTypeOffset"), min(expected - 1, 7) * 8)
+        m.poke("KillsRemaining", 0)
+        self.frame(m)
+        self.frame(m, 8, fire=True, reset=True)
+        self.assertEqual((m.value("GameMode"), m.value("LevelNumber"), m.value("KillsRemaining")), (1, 1, 8))
+        self.assertEqual((m.value("Health"), self.score(m), m.value("RandomState")), (5, 0, 0xa5))
+        self.assertEqual((m.value("BeamEvent"), m.value("BombEvent")), (0, 0))
+
+    def test_level_hud_digits_and_status_scanline_deadlines(self):
+        for mode in (1, 3):
+            for level in (1, 9, 10, 19, 80, 99):
+                m = self.game()
+                m.poke("GameMode", mode)
+                m.poke("LevelNumber", int(str(level), 16))
+                m.poke("SpawnTimer", 60)
+                self.frame(m)
+                origin = m.bus.vsync_edges[-1] // 76 * 76
+                for line in range(10):
+                    row = line // 2
+                    cells = {4 + i * 4 + bit for i, letter in enumerate("LV")
+                             for bit in range(3) if assets.FONT[letter][row] & (4 >> bit)}
+                    cells.update(12 + i * 4 + bit for i, digit in enumerate(f"{level:02}")
+                                 for bit in range(3) if assets.DIGITS[int(digit)][row] & (4 >> bit))
+                    cells.update(24 + i * 4 + bit for i, letter in enumerate("BOMB")
+                                 for bit in range(3) if assets.FONT[letter][row] & (4 >> bit))
+                    p = assets.encode_row(cells)
+                    writes = [(cy % 76, reg, value) for cy, reg, value in m.bus.events
+                              if (cy - origin) // 76 == 54 + line and reg in (0x0e, 0x0f)]
+                    self.assertEqual(writes, [(12, 0x0e, p[1]), (31, 0x0f, p[2]),
+                                              (40, 0x0e, p[4]), (55, 0x0f, p[5])])
+
+    def test_level_spawn_mixes_introduce_variants_in_order(self):
+        for index, row in enumerate(assets.load_levels()["levels"]):
+            m = self.game()
+            m.poke("LevelNumber", index + 1)
+            m.poke("GameMode", 3)
+            m.poke("SpawnTimer", 1)
+            self.frame(m)
+            seen = set()
+            for _ in range(128):
+                for slot in range(4):
+                    m.poke("EnemyFlags", 0, slot)
+                    m.poke("EnemyVisual", 0, slot)
+                m.poke("SpawnTimer", 1)
+                m.poke("SquareTimer", 0)
+                self.frame(m)
+                self.assertEqual(m.value("ActiveCount"), 1)
+                self.assertEqual(m.value("SpawnTimer"), row["spawn_interval"])
+                seen.add((m.value("EnemyFlags") >> 4) & 7)
+            self.assertEqual(seen, set(row["types"]))
+
+    def test_level_natural_run_reaches_all_variants_without_damage(self):
+        m = self.game(False)
+        seen, levels = set(), set()
+        for elapsed in range(10000):
+            levels.add(m.value("LevelNumber"))
+            mask, bomb = 0, False
+            for slot in range(4):
+                flags = m.value("EnemyFlags", slot)
+                if not flags & 0x80:
+                    continue
+                seen.add((flags >> 4) & 7)
+                if flags & 0x40:
+                    radius = m.value("EnemyRadiusHi", slot) * 256 + m.value("EnemyRadiusLo", slot)
+                    bomb |= radius <= 24 * 256 and m.value("BombCooldown") == 0
+                elif m.value("BeamArmed"):
+                    mask = MASKS[flags & 7]
+            self.frame(m, mask, fire=bomb)
+            self.assertEqual(m.value("Health"), 5)
+            self.assertLessEqual(m.value("ActiveCount"), 2)
+            if m.value("LevelNumber") >= 5 and seen == {0, 1, 2, 4, 5}:
+                break
+        self.assertTrue({1, 2, 3, 4} <= levels)
+        self.assertEqual(seen, {0, 1, 2, 4, 5})
+        self.assertGreaterEqual(m.value("LevelNumber"), 5)
 
 
 if __name__ == "__main__":

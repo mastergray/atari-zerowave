@@ -13,7 +13,7 @@ all: $(ROM) $(DISPLAY_ROM)
 bootstrap:
 	$(PYTHON) tools/bootstrap.py
 
-$(GENERATED): tools/generate_assets.py config/tuning.json config/fixtures.json config/audio.json
+$(GENERATED): tools/generate_assets.py config/tuning.json config/fixtures.json config/audio.json config/levels.json
 	$(PYTHON) tools/generate_assets.py
 
 $(ROM): $(SOURCE) $(GENERATED)
@@ -44,6 +44,7 @@ run-display: $(DISPLAY_ROM)
 stella-check: all
 	$(PYTHON) tools/verify_stella.py
 	$(PYTHON) tools/verify_combat_stella.py
+	$(PYTHON) tools/verify_levels_stella.py
 
 clean:
 	$(PYTHON) -c 'import pathlib, shutil; p=pathlib.Path("build"); shutil.rmtree(p) if p.is_dir() else None'

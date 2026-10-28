@@ -8,6 +8,10 @@ PrepareHud:
     lda HealthMask2,x
     sta HudHealth2
     ldy GameMode
+    cpy #MODE_PLAY
+    beq .level
+    cpy #MODE_LEVEL_BREAK
+    beq .level
     lda HudStatus1Lo,y
     sta HudStatus1
     lda HudStatus1Hi,y
@@ -16,6 +20,30 @@ PrepareHud:
     sta HudStatus2
     lda HudStatus2Hi,y
     sta HudStatus2+1
+    jmp .score
+.level:
+    lda LevelNumber
+    lsr
+    lsr
+    lsr
+    lsr
+    tax
+    lda DigitOffsets,x
+    clc
+    adc #<LevelDigitTens
+    sta HudStatus1
+    lda #>LevelDigitTens
+    sta HudStatus1+1
+    lda LevelNumber
+    and #15
+    tax
+    lda DigitOffsets,x
+    clc
+    adc #<LevelDigitOnes
+    sta HudStatus2
+    lda #>LevelDigitOnes
+    sta HudStatus2+1
+.score:
     lda ScoreHi
     lsr
     lsr

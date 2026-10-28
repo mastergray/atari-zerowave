@@ -208,8 +208,9 @@ TrySpawn:
     stx CandidateLane
     jsr NextRandom
     and #7
+    ora LevelTypeOffset   ; level rows each contain eight weighted choices
     tay
-    lda SpawnTypes,y
+    lda LevelTypes,y
     tay
     and #4
     beq .typeReady

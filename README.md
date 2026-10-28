@@ -5,10 +5,10 @@ A native Atari 2600 prototype of the stationary-turret game described in
 The cartridge targets NTSC, uses ordinary 8 KiB F8 banking, and needs no extra RAM.
 
 The current build has one beam shot per joystick flick, five enemy variants,
-five player health points, a four-digit score, and start/game-over/restart screens.
-It keeps the thin beam, expanding bomb ring, and destruction bursts. Difficulty
-is fixed for this playtest, with two enemies visible at a time; levels and higher
-enemy counts are still future work.
+five player health points, a four-digit score, and levels that introduce variants
+gradually. It keeps the thin beam, expanding bomb ring, destruction bursts, and
+combat sounds. The display supports two enemies at a time; higher enemy counts
+are the next rendering milestone.
 
 ## Build and run
 
@@ -115,6 +115,35 @@ the magenta triangle's urgency, the attack/player-damage feedback, and whether a
 squares leave enough time for two bombs. Let enemies through once to compare
 ordinary contact damage with the small triangle's double damage.
 
+## Levels
+
+The lower-left HUD shows `LV 01` during play. Kills count toward a level quota;
+damage and enemies reaching the turret do not. Once the quota is met, spawning
+stops. Finish the remaining enemies, let their destruction bursts clear, and the
+arena pauses for one second while showing the next level. Health and score carry
+over. Bombs recharge for the new level; held controls must still be released
+before attacking again. Death takes priority over advancement. RESET always
+starts level 1 with five health and zero score.
+
+| Level | Enemy mix / change | Kills | Spawn interval |
+| --- | --- | ---: | ---: |
+| 1 | Standard triangles and squares | 8 | 1.5 s |
+| 2 | Adds fast magenta triangles | 10 | 1.5 s |
+| 3 | Adds armored squares | 10 | 1.5 s |
+| 4 | Adds blue diamonds | 12 | 1.5 s |
+| 5 | Same mix, shorter spawn interval | 12 | 1.25 s |
+| 6 | Greater diamond weight | 14 | 1.25 s |
+| 7 | Shorter spawn interval | 16 | 1 s |
+| 8 onward | Final difficulty row | 18 | 0.9 s |
+
+Intervals are the minimum delay between successful spawns; the two-object display
+cap, destruction bursts, and bomb-only spacing can defer them. Enemy speeds stay
+at the tested type settings, including diamond acceleration. Only one bomb-only
+enemy may be active at once, preserving the armored square's two-bomb window.
+Level 9 onward reuses level 8's settings; the displayed number stops at 99 and
+play continues. Quotas, intervals, caps, and weighted type choices live in
+`config/levels.json`.
+
 ## Sound and Stella setup
 
 `make run` explicitly enables audio, even if Stella's saved configuration has it
@@ -160,11 +189,14 @@ appearances further.
 
 ## Validation and development
 
-`make check` runs 61 tests covering generated geometry, all joystick combinations,
+`make check` runs 69 tests covering generated geometry, all joystick combinations,
 button edges and exact cooldown boundaries, both startup banks, stack/guard
 integrity, fixed frame lengths, kernel write deadlines, and display fairness.
 Audio tests check exact TIA envelopes and expiry, simultaneous-event priority,
 preemption/retriggering, coalesced kills, and silence on reset/restart.
+Level tests cover kill quotas, multi-kills, survivor/burst draining, exact breaks,
+held inputs, death/reset priority, all spawn mixes, numeric HUD write deadlines,
+level 99 saturation, and a natural run through the opening four levels.
 Tests check every animation stage for presses on either frame phase, actual
 playfield data, ball motion/enable timing, uniform beam color, sprite rows, every palette phase,
 continuous beam state, and the separate short sound envelope. Release tests cover
@@ -199,6 +231,8 @@ values, destruction-burst stages, variant portraits, manual multi-shot damage,
 armor loss, immunity/hit flashes, double contact damage, and red-flash fade/reset,
 indexed by
 `build/stella/latest-combat.json`. Validated with Stella 6.0.2. See
+`build/stella/latest-levels.json` for 19 additional captures of quota/break
+boundaries, the level HUD, held controls, level 99, and reset. See
 [kernel timing notes](docs/KERNEL_TIMING.md) for the measured budgets and limits.
 Television flicker, real joystick diagonals, and sound still need a hardware pass.
 
@@ -206,9 +240,8 @@ Assembly lives in `src/`; `config/` contains tuning and static fixtures;
 `tools/generate_assets.py` produces the shared graphics tables. The independent
 Godot reference checkout in `res/` is ignored by this repository.
 
-Next is playtesting controls, variants, and sound, then the level table and level
-transitions. Keep the two-enemy cap until later
-sprite reuse work establishes a readable schedule for three or four enemies.
+Next is playtesting the level curve, then sprite reuse work to establish a readable
+schedule for three enemies and eventually four. The current cap remains two.
 
 ## Local repository
 

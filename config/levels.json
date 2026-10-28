@@ -1,0 +1,13 @@
+{
+  "break_frames": 60,
+  "levels": [
+    {"cap": 2, "quota": 8, "spawn_interval": 90, "types": [4, 0, 4, 0, 0, 0, 0, 0]},
+    {"cap": 2, "quota": 10, "spawn_interval": 90, "types": [4, 1, 1, 0, 0, 0, 0, 0]},
+    {"cap": 2, "quota": 10, "spawn_interval": 90, "types": [4, 5, 1, 0, 1, 0, 0, 0]},
+    {"cap": 2, "quota": 12, "spawn_interval": 90, "types": [4, 5, 1, 2, 1, 0, 0, 0]},
+    {"cap": 2, "quota": 12, "spawn_interval": 75, "types": [4, 5, 1, 2, 1, 0, 0, 0]},
+    {"cap": 2, "quota": 14, "spawn_interval": 75, "types": [4, 5, 1, 2, 1, 2, 0, 0]},
+    {"cap": 2, "quota": 16, "spawn_interval": 60, "types": [4, 5, 1, 2, 1, 2, 0, 0]},
+    {"cap": 2, "quota": 18, "spawn_interval": 54, "types": [4, 5, 1, 2, 1, 2, 0, 0]}
+  ]
+}

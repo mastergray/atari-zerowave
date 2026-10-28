@@ -46,6 +46,10 @@ def load_sounds():
     return json.loads((ROOT / "config/audio.json").read_text())["sounds"]
 
 
+def load_levels():
+    return json.loads((ROOT / "config/levels.json").read_text())
+
+
 def center(lane, radius, tuning):
     angle = lane * math.pi / 4
     return (
@@ -164,8 +168,7 @@ def generate():
     assert len(tuning["beam_colors"]) == 8
     assert all(0 <= c <= 255 and c & 15 == 14 for c in tuning["beam_colors"])
     assert 1 <= tuning["beam_fade_start"] <= 15
-    assert 1 <= tuning["start_hp"] <= 5 and 1 <= tuning["enemy_cap"] <= 2
-    assert 0 < tuning["spawn_interval"] <= 255
+    assert 1 <= tuning["start_hp"] <= 5
     assert 0 < tuning["square_spawn_gap"] <= 255
     assert tuning["enemy_burst_stage_frames"] >= 2 and tuning["enemy_burst_stage_frames"] % 2 == 0
     assert len(tuning["enemy_burst_colors"]) == len(BURSTS)
@@ -174,7 +177,6 @@ def generate():
     assert burst_frames < 128, "Burst and live feedback share a seven-bit lifetime"
     kinds = {kind["id"]: kind for kind in tuning["enemy_types"]}
     assert set(kinds) == {0, 1, 2, 4, 5}
-    assert len(tuning["spawn_types"]) == 8 and set(tuning["spawn_types"]) == set(kinds)
     assert 0 < tuning["hit_flash_frames"] < 128 and 0 < tuning["immune_flash_frames"] < 128
     assert tuning["immune_flash_frames"] % 6 == 0, "Three even stages preserve both draw phases"
     assert tuning["player_hit_stage_frames"] > 0 and tuning["player_hit_colors"]
@@ -197,8 +199,8 @@ def generate():
     OUT.mkdir(parents=True, exist_ok=True)
     constants = ["; Generated; edit config/tuning.json instead."]
     for name in ("bomb_cooldown", "bomb_sound_frames", "bomb_radius", "arena_rows", "beam_fade_start",
-                 "spawn_radius", "contact_radius", "start_hp", "enemy_cap",
-                 "spawn_interval", "square_spawn_gap", "enemy_burst_stage_frames",
+                 "spawn_radius", "contact_radius", "start_hp",
+                 "square_spawn_gap", "enemy_burst_stage_frames",
                  "beam_sound_frames", "hit_flash_frames", "immune_flash_frames",
                  "diamond_mid_radius", "diamond_near_radius", "diamond_mid_speed", "diamond_near_speed"):
         constants.append(f"{name.upper()} = {tuning[name]}")
@@ -208,6 +210,20 @@ def generate():
     for name, value in tuning["colors"].items():
         constants.append(f"COLOR_{name.upper()} = ${value:02x}")
     constants.append(f"FIXTURE_COUNT = {len(fixtures)}")
+    level_config = load_levels()
+    levels = level_config["levels"]
+    assert 1 <= len(levels) <= 9  # BCD levels 01..09 index these rows directly
+    assert 1 <= level_config["break_frames"] <= 255
+    for level in levels:
+        assert 1 <= level["cap"] <= 4 and 1 <= level["quota"] <= 255
+        assert 1 <= level["spawn_interval"] <= 255
+        assert len(level["types"]) == 8 and set(level["types"]) <= set(kinds)
+    constants.append(f"LEVEL_COUNT = {len(levels)}")
+    constants.append(f"LEVEL_BREAK_FRAMES = {level_config['break_frames']}")
+    level_tables = [byte_lines(label, [level[key] for level in levels])
+                    for label, key in (("LevelCap", "cap"), ("LevelQuota", "quota"), ("LevelInterval", "spawn_interval"))]
+    level_tables.append(byte_lines("LevelTypes", [kind for level in levels for kind in level["types"]]))
+    (OUT / "levels.inc").write_text("".join(level_tables))
     sounds = load_sounds()
     assert [s["name"] for s in sounds] == ["bomb", "immune", "hit", "kill", "player_hit", "death"]
     samples = [(0, 0, 0)]  # zero index is silence
@@ -239,7 +255,6 @@ def generate():
         if key == "score":
             values = [int(str(v), 16) for v in values]
         type_tables.append(byte_lines(label, values))
-    type_tables.append(byte_lines("SpawnTypes", tuning["spawn_types"]))
     (OUT / "enemy_types.inc").write_text("".join(type_tables))
 
     patterns = [beam_rows(lane, tuning) for lane in range(9)]
@@ -332,6 +347,12 @@ def generate():
         for plane in (1, 2):
             label = f"HudText{mode}Left{plane}" if mode < 3 else f"BombHud{plane}"
             render.append(byte_lines(label, [row[plane] for row in rows], 8))
+    level_label = [encode_row({4 + i * 4 + bit for i, char in enumerate("LV")
+                              for bit in range(3) if FONT[char][y] & (4 >> bit)})[1] for y in range(5)]
+    render.append(byte_lines("LevelLabel", level_label, 8))
+    for name, shift in (("LevelDigitTens", 0), ("LevelDigitOnes", 4)):
+        render.append(byte_lines(name, [int(f"{bits:03b}"[::-1], 2) << shift
+                                       for glyph in DIGITS for bits in glyph], 64))
     render.append("    ENDIF\n")
     (OUT / "graphics.inc").write_text("".join(render))
 
@@ -362,9 +383,9 @@ def generate():
     manifest = {"unique_beam_streams": beam_streams, "unique_playfield_streams": playfield_streams,
                 "unique_raster_streams": len(streams), "ball_patterns": ball_patterns,
                 "bomb_radii": radii, "bomb_animation_frames": animation_frames,
-                "patterns": patterns, "fixtures": fixtures, "tuning": tuning}
+                "patterns": patterns, "fixtures": fixtures, "tuning": tuning, "levels": level_config}
     (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    stamp = hashlib.sha256((json.dumps(tuning, sort_keys=True) + json.dumps(fixtures, sort_keys=True)).encode()).hexdigest()
+    stamp = hashlib.sha256(json.dumps([tuning, fixtures, sounds, level_config], sort_keys=True).encode()).hexdigest()
     (OUT / "assets.stamp").write_text(stamp + "\n")
     print(f"Generated {len(streams)} shared raster streams, {len(radii)} rings, and {len(fixtures)} display fixtures.")
 

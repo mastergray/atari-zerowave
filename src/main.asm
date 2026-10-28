@@ -33,6 +33,7 @@ RenderEntry  = $ff98
     include "audio.asm"
     include "input.asm"
     include "play.asm"
+    include "levels.asm"
     include "enemies.asm"
     include "combat.asm"
     include "render.asm"
@@ -42,6 +43,7 @@ RenderEntry  = $ff98
     include "fixtures.inc"
     include "movement.inc"
     include "enemy_types.inc"
+    include "levels.inc"
     IF DISPLAY_TEST = 0
     include "audio.inc"
     ENDIF
