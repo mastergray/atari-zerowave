@@ -15,10 +15,16 @@ DISPLAY_TEST = 0
     jmp FrameStart
     .byte $2c,$f8,$ff       ; LogicEntry: BIT $FFF8
     jmp GameFrame
+    .byte $2c,$f8,$ff       ; PrepareEntry: BIT $FFF8
+    jmp PrepareFrame
+    .byte $2c,$f9,$ff       ; RenderEntry: BIT $FFF9
+    jmp PrepareDone
     ENDM
 ResetEntry   = $ff80
 DisplayEntry = $ff86
 LogicEntry   = $ff8c
+PrepareEntry = $ff92
+RenderEntry  = $ff98
 
     SEG ROM
     ORG $0000
@@ -28,8 +34,14 @@ LogicEntry   = $ff8c
     include "play.asm"
     include "enemies.asm"
     include "combat.asm"
+    include "render.asm"
+    IF DISPLAY_TEST = 0
+    include "hud.asm"
+    ENDIF
     include "fixtures.inc"
     include "movement.inc"
+    include "enemy_types.inc"
+    include "render_tables.inc"
 Bank0End = *
     IF Bank0End > $ff80
         ERR
@@ -44,10 +56,7 @@ Bank0End = *
 
     ORG $1000
     RORG $f000
-    include "render.asm"
-    IF DISPLAY_TEST = 0
-    include "hud.asm"
-    ENDIF
+    include "frame.asm"
     include "kernel.asm"
     include "graphics.inc"
 Bank1End = *

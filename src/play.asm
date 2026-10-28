@@ -1,5 +1,5 @@
-; Fixed opening difficulty for the milestone-2 combat prototype. Level changes
-; are the next milestone. A/X/Y clobbered, logic scratch only; bounded slot loops.
+; Fixed variant mix and difficulty for playtesting. Level changes come next.
+; A/X/Y clobbered, logic scratch only; bounded slot loops.
 ; The complete update must stay below 2,000 cycles; measured paths are in tests.
 UpdateGame:
     SUBROUTINE
@@ -85,17 +85,16 @@ StartRun:
     sta BombCount
     sta SquareTimer
     sta ActiveCount
+    sta BeamPalette
     lda #START_HP
     sta Health
     lda #ENEMY_CAP
     sta ActiveCap
-    lda #ENEMY_SPEED
-    sta EnemySpeed
+    lda #1
+    sta MovementEnabled
     lda #SPAWN_INTERVAL
     sta SpawnInterval
     sta SpawnTimer
-    lda #SQUARE_WEIGHT
-    sta SquareWeight
     lda #$a5
     sta RandomState
     lda #MODE_PLAY
@@ -110,6 +109,7 @@ ClearWeapons:
     sta BeamDrawColor
     sta BombTimer
     sta BombEvent
+    sta ShotSoundTimer
     lda #$ff
     sta BeamDrawDirection
     rts

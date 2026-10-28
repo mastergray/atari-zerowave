@@ -1,36 +1,7 @@
-; Entry after overscan line-29 boundary. Sync begins at the next boundary.
-FrameStart:
-    SUBROUTINE
-    lda #2
-    sta WSYNC
-    sta VSYNC
-    sta WSYNC
-    sta WSYNC
-    sta WSYNC
-    lda #0
-    sta VSYNC
-    lda #43
-    sta TIM64T
+; VBLANK setup runs in bank 0, with explicit bank jumps on entry/exit.
+PrepareFrame:
     jsr PrepareRender
-PrepareDone:
-.wait:
-    lda INTIM
-    bne .wait
-    sta WSYNC             ; blank line 36
-    lda HudColor
-    sta COLUPF
-    lda #COLOR_BACKGROUND
-    sta COLUBK
-    lda #0
-    sta PF0
-    sta PF1
-    sta PF2
-    sta GRP0
-    sta GRP1
-    ldy #1
-    sta WSYNC             ; first visible line (HUD padding row 0)
-    sta VBLANK
-    jmp HudLoop
+    jmp RenderEntry
 
 ; Prepare playfield, ball-motion and enemy pointers; A/X/Y clobbered.
 ; Display alternation never changes BeamEnabled or the one-update BombEvent.
@@ -43,7 +14,7 @@ PrepareRender:
     lda FrameCounter
     and #1
     sta FramePhase
-    lda BeamDrawColor     ; uniform held color or fixed-hue release fade
+    lda BeamDrawColor     ; uniform fixed-hue shot fade (legacy held color in diagnostics)
     sta ArenaColor
     lda FramePhase
     beq .beamFrame
@@ -125,44 +96,59 @@ PrepareRender:
     beq .noEnemy
     lda #0
     sta EnemyAge,x
-    lda EnemyY,x
-    clc
-    adc #4                ; reversed row index: top maps to sprite byte 83
-    sta EnemySprite       ; all sprite streams begin on a page boundary
-    lda EnemyVisual,x
-    beq .liveEnemy
-    tay
-    lda EnemySprite
-    clc
-    adc #(<BurstFlash+2)  ; 8-row burst centered over the old 4-row enemy
-    sta EnemySprite
-    lda BurstSpriteByTimer,y
-    sta EnemySprite+1
+    ldy EnemyVisual,x
+    lda EnemyFlags,x
+    bmi .liveEnemy
     lda BurstColorByTimer,y
     sta COLUP1
-    jmp .triangle
+    lda BurstSpriteByTimer,y
+    tay
+    jmp .graphic
 .liveEnemy:
-    lda #>SpriteTriangle
-    sta EnemySprite+1
-    lda #COLOR_TRIANGLE
+    and #TYPE_MASK
+    lsr
+    lsr
+    lsr
+    lsr
+    tay
+    lda TypeColor,y
     sta COLUP1
+    lda TypeSprite,y
+    tay
     lda EnemyFlags,x
     and #$40
-    beq .triangle
-    lda #>SpriteSquare
-    sta EnemySprite+1
-    lda #COLOR_SQUARE
-    sta COLUP1
+    beq .feedback
+    lda EnemyHealth,x
+    cmp #1
+    bne .range
+    ldy #2                ; one-health square, including damaged armor
+.range:
     lda EnemyRadiusHi,x
     cmp #BOMB_RADIUS
     bcc .filled
-    bne .triangle
+    bne .feedback
     lda EnemyRadiusLo,x
-    bne .triangle
+    bne .feedback
 .filled:
-    lda #>SpriteSquareReady
+    iny                   ; ready shape follows outlined shape in atlas
+.feedback:
+    lda EnemyVisual,x
+    beq .graphic
+    bmi .hit
+    lda #COLOR_IMMUNE
+    bne .color
+.hit:
+    lda #COLOR_HIT
+.color:
+    sta COLUP1
+.graphic:
+    lda GraphicHi,y
     sta EnemySprite+1
-.triangle:
+    lda EnemyY,x
+    clc
+    adc #6                ; eight-row window centered at old EnemyY+2
+    adc GraphicLo,y       ; labels are at offsets 0 or 88, no carry
+    sta EnemySprite
     lda EnemyX,x
     jmp .positionEnemy
 .noEnemy:

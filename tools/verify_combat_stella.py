@@ -15,7 +15,7 @@ def main():
     commands, labels, advances = [], [], []
     fields = ("GameMode", "Health", "ScoreHi", "ScoreLo", "ActiveCount", "BombCount",
               "BombCooldown", "EnemyFlags", "EnemyRadiusHi", "EnemyRadiusLo", "BeamEnabled",
-              "EnemyVisual", "SelectedSlot")
+              "EnemyVisual", "EnemyHealth", "SelectedSlot", "BeamArmed", "BeamDrawDirection", "BeamDrawColor")
 
     def frame(count=1):
         commands.extend([f"frame #{count}", "print _cycleslo"])
@@ -47,13 +47,14 @@ def main():
 
     # Deterministic boundary fixtures; enemy positioning, damage and HUD still
     # run through the cartridge. Natural movement/spawning was exercised above.
-    poke("EnemySpeed", 0)
+    poke("MovementEnabled", 0)
     poke("SpawnTimer", 255)
     poke("SpawnInterval", 255)
     for slot in range(4):
         poke("EnemyFlags", 0, slot)
         poke("EnemyVisual", 0, slot)
     poke("EnemyFlags", 0xc2)
+    poke("EnemyHealth", 1)
     poke("EnemyRadiusHi", 24)
     poke("EnemyRadiusLo", 1)
     frame(2)
@@ -77,6 +78,7 @@ def main():
     poke("Health", 1)
     for slot, lane in enumerate((0, 4)):
         poke("EnemyFlags", 0xc0 | lane, slot)
+        poke("EnemyHealth", 1, slot)
         poke("EnemyVisual", 0, slot)
         poke("EnemyRadiusHi", 8, slot)
         poke("EnemyRadiusLo", 0, slot)
@@ -112,13 +114,14 @@ def main():
     frame()
     commands.extend(["ram SWCHB $FF", "ram SWBCNT #0"])
     frame()
-    poke("EnemySpeed", 0)
+    poke("MovementEnabled", 0)
     poke("SpawnTimer", 255)
     poke("SpawnInterval", 255)
 
-    def burst_fixture(radius):
-        for slot, flags in enumerate((0x82, 0xc6)):
+    def burst_fixture(radius, bomb=False):
+        for slot, flags in enumerate((0xc2 if bomb else 0x82, 0xc6)):
             poke("EnemyFlags", flags, slot)
+            poke("EnemyHealth", 1, slot)
             poke("EnemyRadiusHi", radius, slot)
             poke("EnemyRadiusLo", 0, slot)
             poke("EnemyVisual", 0, slot)
@@ -140,10 +143,106 @@ def main():
     commands.append("joy0right #0")
     burst_captures("burst-beam")
     commands.extend(["joy0right #1", "joy0up #0"])
-    burst_fixture(20)
+    burst_fixture(20, bomb=True)
     capture("burst-bomb-before")
     commands.append("joy0fire #0")
     burst_captures("burst-bomb")
+
+    # Variant portraits and complete manual-shot/armor/immunity interactions.
+    def fresh():
+        commands.extend(["joy0up #1", "joy0down #1", "joy0left #1", "joy0right #1", "joy0fire #1",
+                         "ram SWBCNT #1", "ram SWCHB $FE"])
+        frame(2)
+        commands.extend(["ram SWCHB $FF", "ram SWBCNT #0"])
+        frame()
+        poke("MovementEnabled", 0)
+        poke("SpawnTimer", 255)
+        poke("SpawnInterval", 255)
+
+    def target(kind, radius=40):
+        poke("EnemyFlags", 0x82 | (kind << 4))
+        poke("EnemyHealth", {0: 1, 1: 1, 2: 3, 4: 1, 5: 2}[kind])
+        poke("EnemyRadiusHi", radius)
+        poke("EnemyRadiusLo", 0)
+        poke("EnemyVisual", 0)
+        frame(2)
+
+    for kind, name in ((0, "triangle"), (1, "fast"), (2, "diamond"), (4, "square"), (5, "armor")):
+        fresh()
+        target(kind)
+        capture(f"variant-{name}")
+        if kind in (4, 5):
+            poke("EnemyRadiusHi", 20)
+            frame(2)
+            capture(f"variant-{name}-in-range")
+
+    fresh()
+    target(2)
+    commands.append("joy0right #0")
+    frame(2)
+    capture("diamond-shot-1")
+    frame(6)
+    capture("diamond-shot-fading")
+    frame(10)
+    capture("diamond-held-dark")
+    commands.extend(["joy0right #1", "joy0up #0"])
+    frame(2)
+    capture("diamond-direct-turn")
+    commands.append("joy0up #1")
+    frame()
+    commands.append("joy0right #0")
+    frame(2)
+    capture("diamond-shot-2")
+    commands.append("joy0right #1")
+    frame()
+    commands.append("joy0right #0")
+    frame(2)
+    capture("diamond-shot-3")
+
+    fresh()
+    target(4, 20)
+    commands.append("joy0right #0")
+    frame(2)
+    capture("immune-square")
+    frame(8)
+    capture("immune-square-expired-held")
+
+    fresh()
+    target(1, 20)
+    commands.append("joy0fire #0")
+    frame(2)
+    capture("immune-triangle-0")
+    frame()
+    capture("immune-triangle-1")
+    frame(8)
+    capture("immune-triangle-expired")
+
+    fresh()
+    target(5, 20)
+    commands.extend(["joy0fire #0", "joy0right #0"])
+    frame(2)
+    capture("armor-hit-1")
+    frame(8)
+    capture("armor-damaged")
+    commands.append("joy0fire #1")
+    frame()
+    commands.append("joy0fire #0")
+    frame(2)
+    capture("armor-rejected-bomb")
+    frame(60)
+    capture("armor-held-bomb")
+    commands.append("joy0fire #1")
+    frame()
+    commands.append("joy0fire #0")
+    frame(2)
+    capture("armor-hit-2")
+
+    fresh()
+    poke("Health", 3)
+    target(1, 8)
+    capture("fast-contact")
+    target(1, 8)
+    capture("fast-contact-game-over")
 
     run, values, snapshots, transcript = run_stella("atari-zerowave", commands, labels, advances, args.timeout)
     columns = {name: values("*" + name) for name in fields}
@@ -171,7 +270,7 @@ def main():
         expect(label, GameMode=1, Health=5, ScoreHi=0, ScoreLo=0, ActiveCount=0, BombCount=0)
     expect("hud-1234", ScoreHi=0x12, ScoreLo=0x34, Health=3)
     expect("hud-9876", ScoreHi=0x98, ScoreLo=0x76, Health=1)
-    for prefix, active, score in (("burst-beam", 1, 0x10), ("burst-bomb", 0, 0x45)):
+    for prefix, active, score in (("burst-beam", 1, 0x10), ("burst-bomb", 0, 0x60)):
         for stage in range(3):
             selected = []
             for phase in (0, 1):
@@ -181,6 +280,23 @@ def main():
                 selected.append(states[label]["SelectedSlot"])
             assert set(selected) == {0, 1}, (prefix, stage, selected)
         expect(f"{prefix}-finished", EnemyVisual=0, SelectedSlot=1 if active else 255, ScoreLo=score)
+    expect("diamond-shot-1", EnemyHealth=2, ScoreLo=0, BeamEnabled=0)
+    expect("diamond-shot-fading", EnemyHealth=2, BeamDrawDirection=2)
+    expect("diamond-held-dark", EnemyHealth=2, BeamDrawDirection=255, BeamDrawColor=0)
+    expect("diamond-direct-turn", EnemyHealth=2, BeamEnabled=0, BeamDrawDirection=255)
+    expect("diamond-shot-2", EnemyHealth=1, ScoreLo=0)
+    expect("diamond-shot-3", EnemyHealth=0, EnemyFlags=0, ScoreLo=0x40)
+    expect("immune-square", EnemyHealth=1, EnemyVisual=5, ScoreLo=0)
+    expect("immune-square-expired-held", EnemyHealth=1, EnemyVisual=0, ScoreLo=0)
+    expect("immune-triangle-0", EnemyHealth=1, EnemyVisual=5, ScoreLo=0)
+    expect("immune-triangle-1", EnemyHealth=1, EnemyVisual=4, ScoreLo=0)
+    expect("immune-triangle-expired", EnemyHealth=1, EnemyVisual=0, ScoreLo=0)
+    expect("armor-hit-1", EnemyHealth=1, EnemyVisual=133, ScoreLo=0)
+    for label in ("armor-damaged", "armor-rejected-bomb", "armor-held-bomb"):
+        expect(label, EnemyHealth=1, EnemyVisual=0, ScoreLo=0, BombCount=1)
+    expect("armor-hit-2", EnemyHealth=0, EnemyFlags=0, ScoreLo=0x50, BombCount=2)
+    expect("fast-contact", Health=1, EnemyFlags=0, ScoreLo=0)
+    expect("fast-contact-game-over", Health=0, GameMode=2, ScoreLo=0)
     report = dict(directory=str(run.relative_to(ROOT)), session=transcript.name,
                   snapshots=dict(zip(labels, [p.name for p in snapshots])), states=states,
                   frame_lines=262, cycles_per_frame=19912)

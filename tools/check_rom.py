@@ -36,11 +36,9 @@ def check(display=False):
             assert (address & 255) + 23 < 256, f"Page crossing: {name}"
         elif name.startswith(("HudText", "BombHud")):
             assert (address & 255) + 4 < 256, f"Page crossing: {name}"
-        elif name.startswith("Sprite"):
-            assert address & 255 == 0, f"Unaligned sprite: {name}"
-        elif name in ("BurstFlash", "BurstSparks", "BurstEmbers"):
-            assert address & 255 == 84, f"Bad paired sprite offset: {name}"
-            assert (address & 255) + 76 + 6 + 79 < 256, f"Burst page crossing: {name}"
+        elif name.startswith("Sprite") or name in ("BurstFlash", "BurstSparks", "BurstEmbers"):
+            assert address & 255 in (0, 88), f"Bad paired sprite offset: {name}"
+            assert (address & 255) + 76 + 6 + 79 < 256, f"Sprite page crossing: {name}"
     manifest = json.loads((ROOT / "build/generated/manifest.json").read_text())
     report = {
         "rom_bytes": len(rom), "sha256": hashlib.sha256(rom).hexdigest(),
@@ -53,7 +51,9 @@ def check(display=False):
         "playfield_streams": manifest["unique_playfield_streams"],
         "raster_streams": manifest["unique_raster_streams"],
         "vertical_diagonal_beam_width_clocks": 1,
-        "beam_release_fade_updates": manifest["tuning"]["beam_fade_start"],
+        "beam_release_fade_updates" if display else "beam_shot_fade_updates": manifest["tuning"]["beam_fade_start"],
+        "beam_trigger": "held (legacy diagnostic)" if display else "center-to-direction flick",
+        "enemy_types": manifest["tuning"]["enemy_types"],
         "enemy_burst_updates": sym["ENEMY_BURST_FRAMES"],
         "bomb_radii": manifest["bomb_radii"],
         "bomb_animation_frames": manifest["bomb_animation_frames"],

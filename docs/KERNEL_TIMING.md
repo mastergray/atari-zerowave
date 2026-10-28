@@ -1,6 +1,6 @@
 # Prototype kernel timing
 
-This records the playable two-enemy combat prototype through milestone 2 and
+This records the playable two-enemy variant prototype with flick-to-fire beams and
 the separate static display-test ROM. Measurements were taken from the assembled
 F8 cartridges with the py65 harness and Stella 6.0.2. They do not certify
 television readability or the future level and larger-enemy-count paths.
@@ -128,7 +128,7 @@ black arena margin. Both sprites still update every physical line.
 ## Effect scheduling
 
 `FrameCounter & 1` selects the display phase. Normally both phases show the
-selected beam or its release afterglow, otherwise blank. During bombs, odd frames show a ring and
+selected shot fade (legacy held beam in the diagnostic ROM), otherwise blank. During bombs, odd frames show a ring and
 even frames show the beam. Pattern IDs 0–7 are directions, 8 is blank, and 9–12 are
 the four rings. `DisplayPattern` records the prepared frame for debugger checks.
 
@@ -138,39 +138,38 @@ phase. The animation lasts 16 updates. Both physical ring lines keep the same
 gold color; the arena background stays black. The outline replaces
 the previous size, so no filled disk or trail accumulates.
 
-While held, the entire beam cycles through eight colors at one palette step per
-four frames, all at luminance 14. The palette is `beam_colors` in
-`config/tuning.json`; it lives in bank 0 so the update can preserve its hue on
-release. The appearance is drawn by the ROM and does not require Stella phosphor
-blending.
+The playable ROM emits one `BeamEvent` when the stick moves from center into a
+valid direction. `BeamArmed` is cleared by the shot and rearmed only when all
+four physical direction bits are released. Holding, directly changing direction,
+or supplying conflicting inputs cannot create repeat shots. Input history and
+the rearm latch are maintained across title, reset, and game over.
 
-Release freezes the last direction and hue, then draws brightness values 15
-through 1 over 15 updates before hiding the beam. TIA ignores color bit 0, giving
-effective luminances `14,14,12,12,10,10,8,8,6,6,4,4,2,2,0`. Luminance zero can
-still be a dark colored pixel; the next update removes the pattern entirely.
-The timer advances even during ring frames. New directional input immediately
-replaces the fade with a bright beam, and reset clears the afterglow.
+A shot selects the next hue from `beam_colors`, latches its direction, and starts
+brightness at 15. Subsequent updates count through 1, then hide it, whether the
+stick is held or released. TIA ignores bit 0, so the effective luminances are
+`14,14,12,12,10,10,8,8,6,6,4,4,2,2,0`. The final zero-luminance hue may still be
+visible; the next update removes the pattern. The timer advances on ring frames.
+A fresh rearmed shot replaces any remaining fade. No phosphor setting is needed.
 
-This cadence comes from Dennis Debro's
+This decay comes from Dennis Debro's
 [Laser Blast disassembly](https://github.com/DNSDEBRO/Disassemblies/blob/a74a6312bac5ae28eacb423303bf55db30ad33d1/Atari2600/Laser%20Blast/laser_blast.asm):
 `CheckForActionButton` initializes the player's laser to `COLOR_LEADSHIP + 15`,
 the overscan update decrements its low nibble once per frame, and the kernel
-disables it at zero. Our adaptation starts that decay on joystick release and
-retains the selected rainbow hue. The original uses a missile graphic; our
-eight-way implementation uses the ball and horizontal playfield rays.
+hides it at zero. Our current adaptation starts decay on the joystick shot.
+The diagnostic ROM retains the earlier held color cycle and release-driven fade.
 
 Four renderer bytes store `BeamFadeTimer`, `BeamFadeHue`, `BeamDrawDirection`,
-and `BeamDrawColor`. `Direction` and `BeamEnabled` still become neutral/zero
-immediately on release, and the beam sound stops. Combat uses those input fields,
-never the cosmetic draw direction. The render bank consumes the
-prepared color and direction for either arena kernel.
+and `BeamDrawColor`. `BeamEvent` aliases `BeamEnabled` in gameplay and lasts one
+update only; combat uses it and `LastDirection`, never the cosmetic fade.
+The five-update shot sound has its own timer in a former audio reserve byte.
 
-This is display-only scheduling: `BeamEnabled` and the beam sound remain active
-while a direction is held, even on its omitted frames. `BombEvent` pulses once
-on acceptance for immediate damage; it is not repeated for ring stages.
-The bomb sound decays over six updates independently of the longer animation.
-Cooldown remains 60 updates. Bomb damage and the square fill cue both compare
-the full 8.8 radius: `24.00` is inside, `24.01` is outside.
+`BombEvent` also pulses once for immediate damage, independent of ring display
+phases. Bomb sound lasts six updates, its ring 16, and its cooldown 60. A bomb
+damages squares and diamonds, while triangles show gray immunity feedback.
+The beam damages triangles and diamonds; squares show gray feedback. A combined
+hit on a diamond can deal two damage but awards score only once on death.
+Bomb damage and square fill both compare the full 8.8 radius: `24.00` is inside,
+`24.01` is outside.
 
 The ring uses the playfield kernel and player graphics are written on both
 phases. Enemy draw ages do not depend on effect phase, so two enemies still
@@ -188,29 +187,43 @@ existing `Temp` scratch byte for the latter. Bursts reserve their old slots.
 A due spawn waits if the combined enemy/burst count is already two, keeping the
 one-omitted-frame limit for survivors. No extra persistent RAM is allocated.
 
-Each normal four-row enemy shares a page with one eight-row burst shape. Their
-graphics begin at offsets 80 and 164, with overlapping blank padding. The burst
-pointer is `EnemyY + 90`, centering it two logical rows above the old top. All
-80 kernel reads stay inside the page and cannot reach the other shape. Sprite
-selection/color setup stays in blanking; neither arena kernel gains instructions.
+Live enemies reuse `EnemyVisual` for six-update feedback: bit 7 marks a white
+successful hit, otherwise the sprite pulses gray for an immune hit. The low
+seven bits hold the timer. On death it becomes the destruction timer; no extra
+per-enemy storage is needed. `EnemyHealth` reuses the old unused phase array.
+The damaged armored square uses the smaller normal square graphic, with its
+own type/score retained. Range-fill selection remains independent of feedback.
+
+Ten eight-row sprite windows share five pages, two shapes per page. Labels sit
+at offsets 0 and 88; graphics at 80..87 and 168..175, sharing blank padding.
+The pointer is `label + EnemyY + 6`, giving a top row of `EnemyY - 2`.
+All 80 reads stay on-page for the legal positions and cannot reach another
+shape. Standard enemy shapes retain their original four rows inside that window.
+
+Display setup and HUD preparation now run in bank 0. After VSYNC, bank 1 starts
+the blanking timer and jumps through `PrepareEntry` ($FF92) to bank 0; it returns
+through `RenderEntry` ($FF98) at `PrepareDone`. Pointer/type tables live in bank 0,
+and the sprite atlas, raster streams, HUD text, and timed kernels live in bank 1.
+The bank stubs are byte-identical in both tails. Moving setup code/data makes
+room for the variants without adding instructions to either arena kernel.
 
 ## Space and update budgets
 
 | Resource | Current measurement |
 | --- | --- |
-| Bank 0 end / room before trampoline | `$F554` / 2,604 bytes |
-| Bank 1 end / room before trampoline | `$FEC5` / 187 bytes |
+| Bank 0 end / room before trampoline | `$F9BB` / 1,477 bytes |
+| Bank 1 end / room before trampoline | `$FD3D` / 579 bytes |
 | Cartridge | 8,192 bytes, identical bank tails and vectors |
 | RAM | Fixed 128-byte map, including reserves and stack |
-| Stack | Six bytes observed; 16 reserved |
+| Stack | Eight bytes observed; 16 reserved |
 | Guard | Eight bytes at `$E8–$EF`, intact in tested runs |
-| Update cost | 311–1,025 cycles from `GameFrame` to `LogicDone` |
-| Render preparation done | 1,382–1,610 cycles from VSYNC line start |
+| Update cost | 325–1,230 cycles from `GameFrame` to `LogicDone` |
+| Render preparation done | 1,392–1,620 cycles from VSYNC line start |
 
-The combat suite records 2,093 frame samples in `build/combat-timing.json`,
-including a 1,400-frame survival run, movement/attack/contact boundaries, scoring,
-spawning, destruction bursts, HUD values, and restart. Tests enforce the 2,000-cycle update and
-2,400-cycle preparation limits. The static diagnostic build has 2,608 bytes free
+The combat suite records 6,357 frame samples in `build/combat-timing.json`,
+including a survival run of at least 1,400 frames across all five types, movement/attack/contact boundaries, scoring,
+spawning, immunity/hit feedback, destruction bursts, HUD values, and restart. Tests enforce the 2,000-cycle update and
+2,400-cycle preparation limits. The static diagnostic build has 1,804 bytes free
 in bank 0 and 456 in bank 1.
 
 Four 64-byte magnitude tables live in bank 0. Cardinal/diagonal signs reconstruct
@@ -243,10 +256,13 @@ with sprite pixels preserved. The NW ray occupies 92 screenshot pixels, down
 from 464, and retains one uniform hue during its fade. Cartridge tests also
 check ball-motion timing, clearing player motion, release in all eight directions
 and hues, re-aiming, reset, and fading during bombs with two enemies.
-The playable pass adds 34 snapshots of natural spawns/movement, both phases of a
+The playable pass adds 59 snapshots of natural spawns/movement, both phases of a
 two-enemy scene, triangle kills, square immunity, bomb-radius boundaries,
 game-over/restart, representative HUD values, and every burst stage alongside
-a surviving enemy or a second burst. Its debugger state confirms
+a surviving enemy or a second burst. Additional captures show all variants,
+a diamond defeated by three flicks, a held dark beam, gray immunity pulses,
+white successful hits, armor loss/two-bomb kills, and double contact damage.
+Its debugger state confirms
 score awards and start/reset input handling. It uses explicit RAM fixtures only
 for boundary cases, after first exercising natural spawning and movement.
 Real hardware

@@ -117,7 +117,7 @@ UpdatePrototype:
     jsr UpdateBeamVisual
     jmp UpdateAudio
 
-; A clobbered, no scratch; two independent attack channels, under 70 cycles.
+; A clobbered, no scratch; two independent attack channels, under 100 cycles.
 UpdateAudio:
     SUBROUTINE
     ; Minimal attack feedback; no music/event queue.
@@ -125,8 +125,20 @@ UpdateAudio:
     sta AUDC0
     lda #8
     sta AUDF0
+    IF DISPLAY_TEST
     lda BeamEnabled
     asl
+    ELSE
+    lda BeamEvent
+    beq .shotDecay
+    lda #BEAM_SOUND_FRAMES
+    sta ShotSoundTimer
+.shotDecay:
+    lda ShotSoundTimer
+    beq .shotVolume
+    dec ShotSoundTimer
+.shotVolume:
+    ENDIF
     sta AUDV0
     lda #8
     sta AUDC1
@@ -141,12 +153,35 @@ UpdateAudio:
     sta AUDV1
     rts
 
-; Visual state only: active beam stays bright; neutral stops gameplay/audio now
-; while the last direction fades. A/X clobbered, no scratch, under 60 cycles.
+; Visual state only. Gameplay starts a fade on each shot; diagnostics retain
+; the held/release experiment. A/X clobbered, no scratch, under 100 cycles.
 ; Laser Blast's decay is a low-nibble countdown 15..1, then hidden at zero.
 ; TIA ignores color bit 0, so brightness steps are 14,14,12,12,...,2,2,0.
 UpdateBeamVisual:
     SUBROUTINE
+    IF DISPLAY_TEST = 0
+    lda BeamEvent
+    beq .shotFade
+    ldx BeamPalette
+    lda BeamColors,x
+    and #$f0
+    sta BeamFadeHue
+    inx
+    txa
+    and #7
+    sta BeamPalette
+    lda LastDirection
+    sta BeamDrawDirection
+    lda #BEAM_FADE_START
+    sta BeamFadeTimer
+.shotFade:
+    lda BeamFadeTimer
+    beq .dark
+    ora BeamFadeHue
+    sta BeamDrawColor
+    dec BeamFadeTimer
+    rts
+    ELSE
     lda BeamEnabled
     beq .released
     lda #BEAM_FADE_START
@@ -172,6 +207,7 @@ UpdateBeamVisual:
     lda LastDirection
     sta BeamDrawDirection
     rts
+    ENDIF
 .dark:
     lda #0
     sta BeamDrawColor

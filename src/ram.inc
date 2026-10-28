@@ -7,10 +7,11 @@ EnemyRadiusLo   ds 4
 EnemyX          ds 4
 EnemyY          ds 4
 EnemyPhase      ds 4
+EnemyHealth = EnemyPhase  ; legacy diagnostic phase is unused in gameplay
 EnemyAge        ds 4
 EnemyVisual     ds 4
-; EnemyVisual is the remaining destruction-burst lifetime; active flags clear
-; immediately on a kill. A nonzero timer keeps only the last sprite position.
+; Inactive: destruction lifetime. Active: bit 7 successful hit, low 7 feedback
+; lifetime (gray immunity pulse when bit 7 is clear). Zero means normal color.
 ; Prototype diagnostics occupy future game-state bytes.
 LayoutId        ds 1
 FrameCounter    ds 1
@@ -24,14 +25,15 @@ SquareTimer     ds 1
 RandomState     ds 1
 ActiveCount     ds 1
 ActiveCap       ds 1
-EnemySpeed      ds 1
+MovementEnabled ds 1
 SpawnInterval   ds 1
-SquareWeight    ds 1
-GameReserved    ds 1
+BeamPalette     ds 1
+BeamArmed       ds 1
 Direction       ds 1
 LastDirection   ds 1
 PreviousButtons ds 1
 BeamEnabled     ds 1
+BeamEvent = BeamEnabled  ; one-update event in gameplay, held input in diagnostics
 BombCooldown    ds 1
 BombTimer       ds 1
 BombEvent       ds 1
@@ -39,6 +41,7 @@ FramePhase      ds 1
 HudHealth1      ds 1
 HudHealth2      ds 1
 AudioReserved   ds 6
+ShotSoundTimer = AudioReserved
 BeamLeft1       ds 2
 BeamLeft2       ds 2
 BeamRight0      ds 2
@@ -72,6 +75,9 @@ CandidateLane  = HudScoreLeft+4
 CoordDX        = HudScoreRight
 CoordDY        = HudScoreRight+1
 DrawableCount  = Temp
+BombTargetCount = HudScoreRight+2
+MoveStep       = HudScoreRight+3
+CombatType     = HudScoreRight+3
 GuardStart      ds 8
 StackBottom     ds 16
 RamEnd = *

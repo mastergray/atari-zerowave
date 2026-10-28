@@ -1,11 +1,18 @@
 ; Cosmetic lifetimes advance before combat sets new timers. A/X clobbered,
-; no scratch, at most four visits and <100 cycles. Coordinates stay fixed.
+; no scratch, at most four visits and <120 cycles. Coordinates stay fixed.
 UpdateBursts:
     SUBROUTINE
     ldx #MAX_ENEMIES-1
 .slot:
     lda EnemyVisual,x
     beq .next
+    and #$7f
+    cmp #1
+    bne .dec
+    lda #0                ; discard successful-hit flag on feedback expiry
+    sta EnemyVisual,x
+    beq .next
+.dec:
     dec EnemyVisual,x
 .next:
     dex
@@ -13,16 +20,40 @@ UpdateBursts:
     rts
 
 ; Four allocated slots, at most two active. Movement is unsigned 8.8 fixed point.
-; A/X/Y, CandidateLane, CoordDX/DY clobbered. Two active slots: <550 cycles.
+; A/X/Y, CandidateLane, CoordDX/DY, MoveStep clobbered. Two slots: <700 cycles.
 MoveEnemies:
     SUBROUTINE
     ldx #0
 .slot:
     lda EnemyFlags,x
     bpl .next
+    lda MovementEnabled   ; zero freezes movement for debugger fixtures
+    beq .position
+    lda EnemyFlags,x
+    and #TYPE_MASK
+    lsr
+    lsr
+    lsr
+    lsr
+    tay
+    lda TypeSpeed,y
+    sta MoveStep
+    cpy #(TYPE_DIAMOND >> 4)
+    bne .move
+    lda EnemyRadiusHi,x
+    cmp #DIAMOND_MID_RADIUS
+    bcs .move
+    lda #DIAMOND_MID_SPEED
+    sta MoveStep
+    lda EnemyRadiusHi,x
+    cmp #DIAMOND_NEAR_RADIUS
+    bcs .move
+    lda #DIAMOND_NEAR_SPEED
+    sta MoveStep
+.move:
     lda EnemyRadiusLo,x
     sec
-    sbc EnemySpeed
+    sbc MoveStep
     sta EnemyRadiusLo,x
     lda EnemyRadiusHi,x
     sbc #0
@@ -31,6 +62,7 @@ MoveEnemies:
     sta EnemyRadiusLo,x
 .store:
     sta EnemyRadiusHi,x
+.position:
     jsr PositionEnemy
 .next:
     inx
@@ -98,7 +130,8 @@ PositionEnemy:
     sta EnemyY,x
     rts
 
-; Outputs ActiveCount, DrawableCount, FreeSlot ($ff if full), UsedLanes.
+; Outputs ActiveCount, DrawableCount, FreeSlot ($ff if full), UsedLanes,
+; BombTargetCount.
 ; Bursts reserve their old slots and count toward the two-object display cap.
 ; A/X/Y clobbered. At most four slot visits, <250 cycles for this build.
 ScanEnemies:
@@ -107,6 +140,7 @@ ScanEnemies:
     sta ActiveCount
     sta DrawableCount
     sta UsedLanes
+    sta BombTargetCount
     lda #$ff
     sta FreeSlot
     ldx #MAX_ENEMIES-1
@@ -123,6 +157,11 @@ ScanEnemies:
 .active:
     inc ActiveCount
     inc DrawableCount
+    and #$40
+    beq .lane
+    inc BombTargetCount
+.lane:
+    lda EnemyFlags,x
     and #7
     tay
     lda LaneBits,y
@@ -168,27 +207,38 @@ TrySpawn:
 .found:
     stx CandidateLane
     jsr NextRandom
-    and #3
-    cmp SquareWeight
-    bcs .triangle
+    and #7
+    tay
+    lda SpawnTypes,y
+    tay
+    and #4
+    beq .typeReady
     lda SquareTimer
+    bne .triangle
+    lda BombTargetCount    ; mixed-speed bomb-only arrivals cannot pile up
     bne .triangle
     lda #SQUARE_SPAWN_GAP
     sta SquareTimer
-    lda #$c0
-    bne .typeReady
+    jmp .typeReady
 .triangle:
-    lda #$80
+    ldy #0
 .typeReady:
-    ora CandidateLane
     ldx FreeSlot
+    lda TypeHealth,y
+    sta EnemyHealth,x
+    tya
+    asl
+    asl
+    asl
+    asl
+    ora #$80
+    ora CandidateLane
     sta EnemyFlags,x
     lda #SPAWN_RADIUS
     sta EnemyRadiusHi,x
     lda #0
     sta EnemyRadiusLo,x
     sta EnemyAge,x
-    sta EnemyPhase,x
     sta EnemyVisual,x
     jsr PositionEnemy
     inc ActiveCount

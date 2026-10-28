@@ -4,12 +4,11 @@ A native Atari 2600 prototype of the stationary-turret game described in
 [the port outline](docs/PORT_OUTLINE.md) and [implementation spec](docs/IMPLEMENTATION_SPEC.md).
 The cartridge targets NTSC, uses ordinary 8 KiB F8 banking, and needs no extra RAM.
 
-The current build is a playable two-enemy combat prototype: approaching triangles
-and squares, beam and bomb kills, five health points, a four-digit score, and
-start/game-over/restart screens. It uses fixed opening difficulty; beam shots per
-joystick flick, enemy variants, levels, and higher enemy counts are planned next.
-The current ROM still uses the thin held beam, color cycle, release fade, and
-expanding bomb ring.
+The current build has one beam shot per joystick flick, five enemy variants,
+five player health points, a four-digit score, and start/game-over/restart screens.
+It keeps the thin beam, expanding bomb ring, and destruction bursts. Difficulty
+is fixed for this playtest, with two enemies visible at a time; levels and higher
+enemy counts are still future work.
 
 ## Build and run
 
@@ -38,68 +37,77 @@ custom mappings can be changed in its input settings.
 
 | Control | Stella key | Prototype behavior |
 | --- | --- | --- |
-| Joystick direction | Arrow keys; combine two for diagonals | Hold to fire a solid color-cycling beam; release to fade |
+| Joystick direction | Arrow keys; combine two for diagonals | Push from center to fire once; center again before the next shot |
 | Joystick button | Space | Start/restart; during play, bomb on a fresh press if ready |
 | SELECT | F1 | No effect in the playable ROM |
 | RESET | F2 | Start a fresh run with five HP and zero score |
 
 Press Space at `FIRE` to start. The upper-left number is your score; the five
-white marks on the right are health. Green triangles die to a beam on their
-approach lane and award 10 points. Pink squares require a bomb and award 25.
-A square fills in when it enters bomb range. Each enemy reaching the turret
-costs one health point. At zero health, `OVER` appears and the final score stays
-visible; release and press Space again, or use F2, to restart.
+white marks on the right are health. Aim along an enemy's approach lane to shoot
+it. A square fills in when it enters bomb range. At zero health, `OVER` appears
+and the final score stays visible; release and press Space again, or use F2, to restart.
+
+| Enemy | Damage accepted | Enemy health | Movement | Player damage on contact | Score |
+| --- | --- | ---: | --- | ---: | ---: |
+| Green triangle | Beam only | 1 | Standard | 1 | 10 |
+| Small magenta triangle | Beam only | 1 | Fastest | 2 | 20 |
+| Pink square | Bomb only | 1 | Standard | 1 | 25 |
+| Large armored square | Bomb only | 2 | Slow | 1 | 50 |
+| Blue diamond | Beam or bomb | 3 | Accelerates toward the turret | 1 | 40 |
+
+Each shot or bomb deals one damage to a vulnerable target. The large square
+shrinks to an ordinary square after its first bomb hit. The diamond needs three
+hits, using separate beam flicks, bombs, or both. Health, speed, and spawn weights
+are provisional playtest values in `config/tuning.json`.
 
 Enemies approach along eight lanes, with at most two active and no duplicate
-lanes. The first spawn arrives about 1.5 seconds after starting. Movement and
-spawn settings stay fixed throughout this milestone; score saturates at 9999.
+lanes. The first spawn arrives about 1.5 seconds after starting. At most one
+bomb-only enemy is active at a time, leaving room to recharge for armored
+squares. The diamond uses speeds 32, 48, then 64/256 as it gets closer; the
+magenta triangle stays fastest at 80/256. Score saturates at 9999.
 
 The `BOMB` label is green when ready and amber during the 60-update cooldown.
 Holding the button produces one bomb; pressing during cooldown does not queue
 another. The gold bomb outline expands through four sizes over 16 updates
 (about a quarter-second), ending at the bomb's range. During that animation,
-ring and beam frames alternate. Outside bombs the beam stays visible every frame.
-The entire beam uses one bright color at a time, cycling through eight colors
-at one step per four updates. There are no stacked gradient lines or separate
-glow stripes. Its input and sound remain active throughout while a direction is
-held. Releasing the stick stops firing and sound immediately, while the last beam
-holds its hue and dims over 15 frames (about a quarter-second). This uses
+ring and beam frames alternate. Outside bombs a beam's fade appears every frame.
+Each new shot selects the next bright palette color, deals damage once, and
+fades automatically over 15 updates (about a quarter-second), using
 [Laser Blast's brightness countdown](docs/KERNEL_TIMING.md#effect-scheduling).
-Re-aiming immediately replaces the afterglow with a bright beam in the new
-direction. The afterglow deals no damage. Starting or resetting with fire held
-does not trigger a bomb; release the button before bombing.
+The shot keeps its direction and hue throughout the fade. Holding the stick
+does not fire again; moving directly between directions does not fire or steer
+the old shot. Return the stick to center before each new shot. A new flick can
+replace an unfinished fade. Each shot also plays a short sound.
+
+Starting or resetting with a direction held does not fire a beam; center first.
+Starting or resetting with the button held does not fire a bomb; release first.
 
 Vertical and diagonal beams use the TIA ball at one color clock wide. Diagonals
 advance at most one color clock per physical scanline, giving a connected thin
 line. Left/right beams retain their existing two-scanline thickness and reach.
-Both techniques use the same color cycle and release fade.
+Both techniques use the same palette and automatic shot fade.
 
 Bomb damage happens once, immediately on the accepted press, within a fixed
 radius. The expanding ring is visual feedback; an enemy entering it afterward
-survives. Beam damage continues while held, including ring display frames.
+survives. Beam shots deal damage even on ring display frames; the fading beam
+does not damage later arrivals. Triangles are immune to bombs, and squares are
+immune to the beam. A diamond can take one damage from each weapon in the same
+update, but awards score only once when destroyed.
 
-The current ROM's bomb can destroy both triangles and squares. The
-[revised enemy design](docs/PORT_OUTLINE.md#agreed-enemy-variants) changes all
-triangles to beam-only and adds a smaller, fastest-moving magenta triangle that
-deals two player damage on contact but dies to one beam hit,
-a larger square requiring two bombs, and a tougher blue diamond that takes
-either attack and accelerates toward the turret. A brief gray sprite pulse is
-proposed for ineffective attacks, distinct from a white successful-hit flash.
-These changes are specified but not implemented yet. The revised beam controls
-also require a separate joystick flick for every shot: push from center to fire
-once, then center the stick before firing again. Each shot deals damage once and
-fades automatically, even while held. Holding or moving directly between
-directions will not repeat. The current ROM still uses continuous held fire and
-release-triggered fade as described above.
+An ineffective attack briefly turns its target gray. A successful nonlethal hit
+flashes white. These cues last six updates (about 0.1 seconds); damage feedback
+takes priority when both weapons hit at once. Misses, out-of-range bombs, held
+controls, and cosmetic beam/ring animation do not trigger more flashes.
 
 Destroyed enemies leave a short burst at the hit position: a white flash, gold
 sparks, then dim red embers over 18 updates (about 0.3 seconds). Kills and score
 apply immediately. A burst temporarily occupies the old sprite slot, so a new
 spawn may wait for it to finish when both display slots are occupied.
 
-For this playtest, check whether triangles are easy to hit, the square's fill cue
-gives enough warning, the bomb feels responsive, and two approaching enemies
-remain readable. Let enemies through once to check health loss and restart.
+For this playtest, check deliberate diagonal flicks, repeat shots at diamonds,
+the magenta triangle's urgency, the gray/white feedback, and whether armored
+squares leave enough time for two bombs. Let enemies through once to compare
+ordinary contact damage with the small triangle's double damage.
 
 ## Static display test
 
@@ -117,7 +125,7 @@ appearances further.
 
 ## Validation and development
 
-`make check` runs 41 tests covering generated geometry, all joystick combinations,
+`make check` runs 51 tests covering generated geometry, all joystick combinations,
 button edges and exact cooldown boundaries, both startup banks, stack/guard
 integrity, fixed frame lengths, kernel write deadlines, and display fairness.
 Tests check every animation stage for presses on either frame phase, actual
@@ -127,7 +135,10 @@ all eight directions and hues, the exact fade countdown, immediate sound cutoff,
 re-aiming, reset, and simultaneous bombing with two enemies.
 Combat checks cover all lane/radius coordinates, fixed-point boundaries, attack
 priority, BCD score carries/saturation, start/reset input edges, spawn limits,
-square spacing, HUD digits/health, and a 1,400-frame scripted survival run.
+square spacing, HUD digits/health, and a scripted survival run of at least 1,400
+frames that encounters and defeats all five types. New checks cover flick rearming,
+fading while held/released, every weapon/type pair, nonlethal/immunity flashes,
+two-bomb armor, accelerating movement, and double contact damage.
 Burst checks cover all eight hit directions, every animation stage, double bomb
 kills, surviving-enemy visibility, spawn deferral, expiry, and reset/game over.
 `build/combat-timing.json` records the measured update/prepare costs and stack use.
@@ -143,9 +154,10 @@ The display ROM saves 56 TIA snapshots: neutral, both phases of all eight
 directions, all 16 bomb frames, and both phases of the three overlap layouts
 during the largest ring, plus the last held beam, all 15 release frames, and the
 cleared frame. Results are indexed by
-`build/stella/latest.json`. The playable ROM adds 34 captures of natural movement,
+`build/stella/latest.json`. The playable ROM adds 59 captures of natural movement,
 two-enemy drawing, kills, exact bomb-range boundaries, game over/restart, and HUD
-values, plus both phases of every destruction-burst stage, indexed by
+values, destruction-burst stages, variant portraits, manual multi-shot damage,
+armor loss, immunity/hit flashes, and double contact damage, indexed by
 `build/stella/latest-combat.json`. Validated with Stella 6.0.2. See
 [kernel timing notes](docs/KERNEL_TIMING.md) for the measured budgets and limits.
 Television flicker, real joystick diagonals, and sound still need a hardware pass.
@@ -154,11 +166,9 @@ Assembly lives in `src/`; `config/` contains tuning and static fixtures;
 `tools/generate_assets.py` produces the shared graphics tables. The independent
 Godot reference checkout in `res/` is ignored by this repository.
 
-Next is beam shots per joystick flick, the revised weapon/type matrix, and enemy
-variants, followed by the level table, level transitions, and additional hit/death
-sounds. Keep the two-enemy cap
-until the later sprite reuse work establishes a readable schedule for three or
-four enemies.
+Next is playtesting these controls and variants, then the level table, level
+transitions, and additional hit/death sounds. Keep the two-enemy cap until later
+sprite reuse work establishes a readable schedule for three or four enemies.
 
 ## Local repository
 

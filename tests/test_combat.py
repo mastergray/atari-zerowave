@@ -31,7 +31,7 @@ class CombatTests(unittest.TestCase):
         m.boot()
         self.frame(m, reset=True)
         if frozen:
-            m.poke("EnemySpeed", 0)
+            m.poke("MovementEnabled", 0)
             m.poke("SpawnTimer", 255)
         return m
 
@@ -47,8 +47,11 @@ class CombatTests(unittest.TestCase):
         self.assertGreaterEqual(m.min_sp, 0xef)
         self.assertFalse(m.cpu.p & 8, "Decimal mode leaked out of score routine")
 
-    def enemy(self, m, slot, lane, radius, square=False, fraction=0):
-        m.poke("EnemyFlags", 0x80 | (0x40 if square else 0) | lane, slot)
+    def enemy(self, m, slot, lane, radius, square=False, fraction=0, kind=None, health=None):
+        kind = (4 if square else 0) if kind is None else kind
+        definition = next(t for t in assets.load_config()["enemy_types"] if t["id"] == kind)
+        m.poke("EnemyFlags", 0x80 | (kind << 4) | lane, slot)
+        m.poke("EnemyHealth", definition["health"] if health is None else health, slot)
         m.poke("EnemyRadiusHi", radius, slot)
         m.poke("EnemyRadiusLo", fraction, slot)
         m.poke("EnemyAge", 0, slot)
@@ -76,8 +79,11 @@ class CombatTests(unittest.TestCase):
             self.assertEqual(m.value("BeamEnabled"), 0)
             self.assertEqual(m.value("SpawnTimer"), 90)
             self.frame(m, 8, fire=True)
-            self.assertEqual(m.value("BeamEnabled"), 1)
+            self.assertEqual(m.value("BeamEvent"), 0)
             self.assertEqual(m.value("BombCount"), 0)
+            self.frame(m)
+            self.frame(m, 8)
+            self.assertEqual(m.value("BeamEvent"), 1)
 
     def test_beam_pierces_triangles_but_not_squares_or_other_lanes(self):
         for lane, mask in enumerate(MASKS):
@@ -109,8 +115,179 @@ class CombatTests(unittest.TestCase):
         self.frame(m, 9)
         self.assertEqual(self.score(m), 10)
 
+    def test_flick_shot_latches_direction_and_requires_actual_center(self):
+        for lane, mask in enumerate(MASKS):
+            m = self.game()
+            self.enemy(m, 0, lane, 40, kind=2)
+            self.frame(m, mask)
+            self.assertEqual(m.value("EnemyHealth"), 2)
+            self.assertEqual(m.value("BeamEvent"), 1)
+            for other in (mask, MASKS[(lane + 1) % 8], 3, 12, 15, mask):
+                self.frame(m, other)
+                self.assertEqual(m.value("BeamEvent"), 0)
+                self.assertEqual(m.value("EnemyHealth"), 2)
+                self.assertEqual(m.value("LastDirection"), lane)
+                self.assertEqual(m.value("BeamDrawDirection"), lane)
+            self.frame(m)
+            self.frame(m, mask)
+            self.assertEqual(m.value("EnemyHealth"), 1)
+            self.frame(m)
+            self.frame(m, mask)
+            self.assertEqual(m.value("EnemyFlags"), 0)
+            self.assertEqual(self.score(m), 40)
+
+    def test_all_input_combinations_shoot_once_and_invalid_inputs_do_not_rearm(self):
+        decode = (255, 0, 4, 255, 6, 7, 5, 6, 2, 1, 3, 2, 255, 0, 4, 255)
+        for mask, direction in enumerate(decode):
+            m = self.game()
+            self.frame(m, mask)
+            self.assertEqual(m.value("Direction"), direction)
+            self.assertEqual(m.value("BeamEvent"), int(direction != 255))
+            self.frame(m, mask)
+            self.assertEqual(m.value("BeamEvent"), 0)
+
+    def test_shot_fades_while_held_or_released_with_single_sound_envelope(self):
+        tuning = assets.load_config()
+        for release in (False, True):
+            for lane, mask in enumerate(MASKS):
+                m = self.game()
+                for hue_index, hue in enumerate(tuning["beam_colors"]):
+                    for elapsed in range(17):
+                        self.frame(m, mask if elapsed == 0 or not release else 0)
+                        self.assertEqual(m.value("BeamEvent"), int(elapsed == 0))
+                        self.assertEqual(m.value("BeamDrawDirection"), lane if elapsed < 15 else 255)
+                        self.assertEqual(m.value("BeamDrawColor"), (hue & 240) | (15 - elapsed) if elapsed < 15 else 0)
+                        self.assertEqual(m.bus.tia[0x19], max(0, tuning["beam_sound_frames"] - elapsed))
+                        self.assert_rendered_pattern(m, m.value("DisplayPattern"))
+                    self.frame(m)  # rearm, including after a held fade
+                self.assertEqual(m.value("BeamPalette"), 0)
+
+    def test_weapon_matrix_and_feedback_expiry_for_every_type(self):
+        for kind in assets.load_config()["enemy_types"]:
+            for weapon in (1, 2):
+                m = self.game()
+                self.enemy(m, 0, 2, 20, kind=kind["id"])
+                self.frame(m, 8 if weapon == 1 else 0, fire=weapon == 2)
+                damaged = bool(kind["weapons"] & weapon)
+                hp = kind["health"] - damaged
+                self.assertEqual(m.value("EnemyHealth"), hp)
+                self.assertEqual(m.value("EnemyFlags") != 0, hp > 0)
+                self.assertEqual(self.score(m), kind["score"] if hp == 0 else 0)
+                self.assertEqual(m.value("EnemyVisual"), 18 if hp == 0 else 134 if damaged else 6)
+                for _ in range(6):
+                    self.assert_arena_colors_and_sprites(m)
+                    self.frame(m, 8 if weapon == 1 else 0, fire=weapon == 2)
+                    self.assertEqual(m.value("EnemyHealth"), hp)
+                if hp:
+                    self.assertEqual(m.value("EnemyVisual"), 0)
+                    self.assert_arena_colors_and_sprites(m)
+
+    def test_diamond_combined_attacks_and_feedback_priority(self):
+        for hp in (1, 2, 3):
+            m = self.game()
+            self.enemy(m, 0, 2, 20, kind=2, health=hp)
+            self.frame(m, 8, fire=True)
+            self.assertEqual(m.value("EnemyHealth"), max(0, hp - 2))
+            self.assertEqual(self.score(m), 40 if hp <= 2 else 0)
+            self.assertEqual(m.value("EnemyVisual"), 18 if hp <= 2 else 134)
+            self.assert_arena_colors_and_sprites(m)
+        m = self.game()
+        self.enemy(m, 0, 2, 20, kind=5)
+        self.frame(m, 8, fire=True)
+        self.assertEqual(m.value("EnemyHealth"), 1)
+        self.assertEqual(m.value("EnemyVisual"), 134, "Real bomb damage wins over beam immunity")
+        self.assert_arena_colors_and_sprites(m)
+
+    def test_armored_square_two_separate_bombs_and_visible_armor_loss(self):
+        m = self.game()
+        self.enemy(m, 0, 2, 24, kind=5)
+        self.frame(m)
+        self.assert_arena_colors_and_sprites(m)
+        self.frame(m, fire=True)
+        self.assertEqual(m.value("EnemyHealth"), 1)
+        self.assertEqual(self.score(m), 0)
+        self.assert_arena_colors_and_sprites(m)
+        for _ in range(59):
+            self.frame(m, fire=True)
+            self.assertEqual(m.value("EnemyHealth"), 1)
+        self.frame(m)
+        self.frame(m, fire=True)
+        self.assertEqual(m.value("EnemyFlags"), 0)
+        self.assertEqual(self.score(m), 50)
+
+    def test_bomb_boundary_and_no_feedback_for_out_of_range_variants(self):
+        for kind in (0, 1, 2, 4, 5):
+            m = self.game()
+            self.enemy(m, 0, 2, 24, kind=kind)
+            self.enemy(m, 1, 6, 24, fraction=1, kind=kind)
+            before = m.value("EnemyHealth")
+            self.frame(m, fire=True)
+            self.assertEqual(m.value("EnemyHealth"), before - (kind in (2, 4, 5)))
+            self.assertEqual(m.value("EnemyHealth", 1), before)
+            self.assertEqual(m.value("EnemyVisual", 1), 0)
+            self.assert_arena_colors_and_sprites(m)
+
+    def test_type_speeds_acceleration_boundaries_and_armor_bomb_window(self):
+        tuning = assets.load_config()
+        for kind in tuning["enemy_types"]:
+            for radius in (63, 41, 40, 39, 25, 24, 23, 9):
+                m = self.game(False)
+                m.poke("SpawnTimer", 255)
+                self.enemy(m, 0, 2, radius, kind=kind["id"])
+                speed = kind["speed"]
+                if kind["id"] == 2:
+                    speed = 64 if radius < 24 else 48 if radius < 40 else 32
+                self.frame(m)
+                self.assertEqual(m.value("EnemyRadiusHi") * 256 + m.value("EnemyRadiusLo"), radius * 256 - speed)
+                self.assert_arena_colors_and_sprites(m)
+        m = self.game(False)
+        m.poke("SpawnTimer", 255)
+        self.enemy(m, 0, 2, 24, kind=5)
+        # Give the player half a second to react, then the full recharge period.
+        for _ in range(30):
+            self.frame(m)
+        self.frame(m, fire=True)
+        for _ in range(59):
+            self.frame(m)
+        self.frame(m, fire=True)
+        self.assertEqual(self.score(m), 50)
+        self.assertEqual(m.value("Health"), 5)
+
+    def test_fast_triangle_double_contact_damage_saturates_and_can_be_prevented(self):
+        for hp in (1, 2, 3, 5):
+            m = self.game()
+            m.poke("Health", hp)
+            self.enemy(m, 0, 2, 8, kind=1)
+            self.frame(m, fire=True)  # bomb cannot rescue the player from a triangle
+            self.assertEqual(m.value("Health"), max(0, hp - 2))
+            self.assertEqual(m.value("EnemyVisual"), 0)
+            self.assertEqual(self.score(m), 0)
+        m = self.game()
+        self.enemy(m, 0, 2, 8, kind=1)
+        self.frame(m, 8)
+        self.assertEqual(m.value("Health"), 5)
+        self.assertEqual(self.score(m), 20)
+        m = self.game()
+        self.enemy(m, 0, 2, 8, kind=2)
+        self.frame(m, 8)
+        self.assertEqual(m.value("Health"), 4, "Nonlethal beam hit does not prevent contact")
+        self.assertEqual(self.score(m), 0)
+
+    def test_all_variant_silhouettes_and_feedback_with_survivor_on_both_phases(self):
+        for kind in (0, 1, 2, 4, 5):
+            for lane, mask in enumerate(MASKS):
+                m = self.game()
+                self.enemy(m, 0, lane, 63, kind=kind)
+                self.enemy(m, 1, (lane + 4) % 8, 24, kind=5)
+                for feedback in (0, 6, 134):
+                    m.poke("EnemyVisual", feedback)
+                    for _ in range(2):
+                        self.frame(m)
+                        self.assert_arena_colors_and_sprites(m)
+                        self.assertLessEqual(m.value("EnemyAge", 1), 1)
+
     def test_bomb_fixed_point_boundary_and_fill_cue(self):
-        for square in (False, True):
+        for square in (True,):
             m = self.game()
             self.enemy(m, 0, 2, 24, square=square)
             self.enemy(m, 1, 6, 24, square=square, fraction=1)
@@ -163,7 +340,7 @@ class CombatTests(unittest.TestCase):
 
     def test_movement_borrow_saturation_and_exact_contact(self):
         m = self.game()
-        m.poke("EnemySpeed", 32)
+        m.poke("MovementEnabled", 32)
         self.enemy(m, 0, 2, 25, fraction=0, square=True)
         self.frame(m)
         self.assertEqual((m.value("EnemyRadiusHi"), m.value("EnemyRadiusLo")), (24, 224))
@@ -218,6 +395,9 @@ class CombatTests(unittest.TestCase):
         self.assertEqual(m.value("EnemyFlags"), 0x82)
         self.assertEqual((m.value("EnemyRadiusHi"), m.value("EnemyRadiusLo")), (63, 0))
         self.assertEqual(self.score(m), 0)
+        self.frame(m, 8)  # held direction cannot hit the new spawn
+        self.assertEqual(m.value("EnemyFlags"), 0x82)
+        self.frame(m)
         self.frame(m, 8)
         self.assertEqual(m.value("EnemyFlags"), 0)
         self.assertEqual(self.score(m), 10)
@@ -226,7 +406,6 @@ class CombatTests(unittest.TestCase):
         m = self.game()
         m.poke("SpawnTimer", 0)
         m.poke("SpawnInterval", 1)
-        m.poke("SquareWeight", 4)
         m.poke("ActiveCap", 4)  # storage capacity must not bypass display cap
         for _ in range(20):
             self.frame(m)
@@ -292,6 +471,7 @@ class CombatTests(unittest.TestCase):
         for slot, lane in enumerate((0, 4)):
             self.enemy(m, slot, lane, 40, square=True)
         for mask in MASKS:
+            self.frame(m)
             self.frame(m, mask)
             self.assert_rendered_pattern(m, m.value("DisplayPattern"))
             self.assert_arena_colors_and_sprites(m)
@@ -342,12 +522,12 @@ class CombatTests(unittest.TestCase):
         for phase in (0, 1):
             m = self.game()
             m.poke("FrameCounter", phase)
-            self.enemy(m, 0, 2, 20)
+            self.enemy(m, 0, 2, 20, square=True)
             self.enemy(m, 1, 6, 24, square=True)
             drawn = [[], [], []]
             for elapsed in range(19):
                 self.frame(m, 1, fire=True)
-                self.assertEqual(self.score(m), 35)
+                self.assertEqual(self.score(m), 50)
                 self.assertEqual(m.value("ActiveCount"), 0)
                 self.assertEqual(m.value("EnemyVisual", 0), max(0, 18 - elapsed))
                 self.assertEqual(m.value("EnemyVisual", 1), max(0, 18 - elapsed))
@@ -402,18 +582,19 @@ class CombatTests(unittest.TestCase):
         m = self.game(False)
         kinds, awards = set(), set()
         previous_score = 0
-        for _ in range(1400):
+        for elapsed in range(3000):
             active = [s for s in range(4) if m.value("EnemyFlags", s) & 0x80]
             mask = 0
             bomb = False
             for slot in active:
                 flags = m.value("EnemyFlags", slot)
-                kinds.add(bool(flags & 0x40))
+                kinds.add((flags >> 4) & 7)
                 if flags & 0x40:
                     radius = m.value("EnemyRadiusHi", slot) * 256 + m.value("EnemyRadiusLo", slot)
                     bomb |= radius <= 24 * 256 and m.value("BombCooldown") == 0
                 else:
-                    mask = MASKS[flags & 7]
+                    if m.value("BeamArmed"):
+                        mask = MASKS[flags & 7]
             self.frame(m, mask, fire=bomb)
             active = [s for s in range(4) if m.value("EnemyFlags", s) & 0x80]
             self.assertLessEqual(len(active), 2)
@@ -422,12 +603,15 @@ class CombatTests(unittest.TestCase):
                 self.assertLessEqual(m.value("EnemyAge", slot), 1)
                 self.assertTrue(0 <= m.value("EnemyX", slot) <= 152)
                 self.assertTrue(0 <= m.value("EnemyY", slot) <= 76)
+            self.assertLessEqual(sum(bool(m.value("EnemyFlags", s) & 0x40) for s in active), 1)
             score = self.score(m)
             if score > previous_score:
                 awards.add(score - previous_score)
             previous_score = score
-        self.assertEqual(kinds, {False, True})
-        self.assertTrue({10, 25} <= awards)
+            if elapsed >= 1400 and kinds == {0, 1, 2, 4, 5} and {10, 20, 25, 40, 50} <= awards:
+                break
+        self.assertEqual(kinds, {0, 1, 2, 4, 5})
+        self.assertTrue({10, 20, 25, 40, 50} <= awards)
         self.assertEqual(m.value("Health"), 5)
         self.assertEqual(m.value("GameMode"), 1)
 

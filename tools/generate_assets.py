@@ -25,6 +25,15 @@ BURSTS = [
     ("Sparks", [0x24, 0x81, 0x5a, 0x3c, 0x3c, 0x5a, 0x81, 0x24]),
     ("Embers", [0x81, 0x00, 0x24, 0x00, 0x00, 0x24, 0x00, 0x81]),
 ]
+SPRITES = [
+    ("SpriteTriangle", [0, 0, 0x18, 0x3c, 0x7e, 0xff, 0, 0]),
+    ("SpriteFast", [0, 0, 0, 0x18, 0x3c, 0x7e, 0, 0]),
+    ("SpriteSquare", [0, 0, 0x7e, 0x42, 0x42, 0x7e, 0, 0]),
+    ("SpriteSquareReady", [0, 0, 0x7e, 0x7e, 0x7e, 0x7e, 0, 0]),
+    ("SpriteArmor", [0, 0xff, 0x81, 0xa5, 0xa5, 0x81, 0xff, 0]),
+    ("SpriteArmorReady", [0, 0xff, 0xff, 0xdb, 0xdb, 0xff, 0xff, 0]),
+    ("SpriteDiamond", [0x18, 0x3c, 0x7e, 0xff, 0xff, 0x7e, 0x3c, 0x18]),
+] + [("Burst" + name, shape) for name, shape in BURSTS]
 
 
 def load_config():
@@ -112,7 +121,8 @@ def ring_rows(radius, tuning):
 
 def byte_lines(label, data, alignment=None):
     result = [f"    align {alignment}" ] if alignment else []
-    result.append(label + ":")
+    if label:
+        result.append(label + ":")
     for start in range(0, len(data), 16):
         result.append("    .byte " + ",".join(f"${value:02x}" for value in data[start:start + 16]))
     return "\n".join(result) + "\n"
@@ -149,20 +159,37 @@ def generate():
     assert all(0 <= c <= 255 and c & 15 == 14 for c in tuning["beam_colors"])
     assert 1 <= tuning["beam_fade_start"] <= 15
     assert 1 <= tuning["start_hp"] <= 5 and 1 <= tuning["enemy_cap"] <= 2
-    assert 0 < tuning["enemy_speed"] <= 255 and 0 < tuning["spawn_interval"] <= 255
-    assert 0 <= tuning["square_weight"] <= 4 and 0 < tuning["square_spawn_gap"] <= 255
+    assert 0 < tuning["spawn_interval"] <= 255
+    assert 0 < tuning["square_spawn_gap"] <= 255
     assert tuning["enemy_burst_stage_frames"] >= 2 and tuning["enemy_burst_stage_frames"] % 2 == 0
     assert len(tuning["enemy_burst_colors"]) == len(BURSTS)
     assert all(0 <= color <= 255 for color in tuning["enemy_burst_colors"])
     burst_frames = len(BURSTS) * tuning["enemy_burst_stage_frames"]
-    assert burst_frames < 256
+    assert burst_frames < 128, "Burst and live feedback share a seven-bit lifetime"
+    kinds = {kind["id"]: kind for kind in tuning["enemy_types"]}
+    assert set(kinds) == {0, 1, 2, 4, 5}
+    assert len(tuning["spawn_types"]) == 8 and set(tuning["spawn_types"]) == set(kinds)
+    assert 0 < tuning["hit_flash_frames"] < 128 and 0 < tuning["immune_flash_frames"] < 128
+    assert 0 < tuning["beam_sound_frames"] <= 15
+    assert tuning["contact_radius"] < tuning["diamond_near_radius"] < tuning["diamond_mid_radius"] < tuning["spawn_radius"]
+    assert kinds[2]["speed"] < tuning["diamond_mid_speed"] < tuning["diamond_near_speed"] < kinds[1]["speed"] <= 255
+    assert kinds[0]["health"] == kinds[1]["health"] == kinds[4]["health"] == 1
+    assert kinds[5]["health"] == 2 and 1 < kinds[2]["health"] <= 15
+    assert all(kind["speed"] < kinds[1]["speed"] for kind in kinds.values() if kind["id"] != 1)
+    for kind in kinds.values():
+        assert 0 < kind["speed"] <= 255 and 0 < kind["score"] <= 99
+        assert kind["weapons"] == (2 if kind["id"] & 4 else 3 if kind["id"] == 2 else 1)
+        assert kind["damage"] == (2 if kind["id"] == 1 else 1)
+        assert 0 <= kind["color"] <= 255 and 0 <= kind["sprite"] < 7
     radii = bomb_radii(tuning)
     assert radii == sorted(set(radii)) and radii[0] > 0
     OUT.mkdir(parents=True, exist_ok=True)
     constants = ["; Generated; edit config/tuning.json instead."]
     for name in ("bomb_cooldown", "bomb_sound_frames", "bomb_radius", "arena_rows", "beam_fade_start",
-                 "spawn_radius", "contact_radius", "start_hp", "enemy_cap", "enemy_speed",
-                 "spawn_interval", "square_weight", "square_spawn_gap", "enemy_burst_stage_frames"):
+                 "spawn_radius", "contact_radius", "start_hp", "enemy_cap",
+                 "spawn_interval", "square_spawn_gap", "enemy_burst_stage_frames",
+                 "beam_sound_frames", "hit_flash_frames", "immune_flash_frames",
+                 "diamond_mid_radius", "diamond_near_radius", "diamond_mid_speed", "diamond_near_speed"):
         constants.append(f"{name.upper()} = {tuning[name]}")
     constants.append(f"BOMB_ANIMATION_FRAMES = {animation_frames}")
     constants.append(f"ENEMY_BURST_FRAMES = {burst_frames}")
@@ -170,6 +197,16 @@ def generate():
         constants.append(f"COLOR_{name.upper()} = ${value:02x}")
     constants.append(f"FIXTURE_COUNT = {len(fixtures)}")
     (OUT / "tuning.inc").write_text("\n".join(constants) + "\n")
+    type_tables = []
+    for label, key in (("TypeHealth", "health"), ("TypeSpeed", "speed"), ("TypeDamage", "damage"),
+                       ("TypeWeapons", "weapons"), ("TypeScore", "score"), ("TypeColor", "color"),
+                       ("TypeSprite", "sprite")):
+        values = [kinds.get(i, kinds[0])[key] for i in range(8)]
+        if key == "score":
+            values = [int(str(v), 16) for v in values]
+        type_tables.append(byte_lines(label, values))
+    type_tables.append(byte_lines("SpawnTypes", tuning["spawn_types"]))
+    (OUT / "enemy_types.inc").write_text("".join(type_tables))
 
     patterns = [beam_rows(lane, tuning) for lane in range(9)]
     beam_streams = len({tuple(row[plane] for row in rows) for rows in patterns for plane in (1, 2, 3, 4)})
@@ -194,11 +231,10 @@ def generate():
         if values not in streams:
             streams[values] = f"BeamMotionStream{len(streams)}"
         motion_labels.append(streams[values])
-    render = ["; Generated display data. All indexed loads are page-safe.\n"]
+    render = ["; Bank 0 display setup tables; pointers refer to bank 1 data.\n"]
     stages = [0] + [(burst_frames - timer) // tuning["enemy_burst_stage_frames"]
                     for timer in range(1, burst_frames + 1)]
-    render.append("BurstSpriteByTimer:\n    .byte " +
-                  ",".join(">Burst" + BURSTS[stage][0] for stage in stages) + "\n")
+    render.append(byte_lines("BurstSpriteByTimer", [7 + stage for stage in stages]))
     render.append(byte_lines("BurstColorByTimer", [tuning["enemy_burst_colors"][stage] for stage in stages]))
     # Timer counts down. Zero is neutral; 16..13 select the smallest ring, etc.
     render.append(byte_lines("BombPatternByTimer", [8] + [
@@ -212,6 +248,9 @@ def generate():
         render.append(byte_lines(name, [ball[key] for ball in ball_patterns]))
     for operator, suffix in (("<", "Lo"), (">", "Hi")):
         render.append(f"BallMotion{suffix}:\n    .byte " + ",".join(operator + label for label in motion_labels) + "\n")
+        render.append(f"Graphic{suffix}:\n    .byte " + ",".join(operator + name for name, _ in SPRITES) + "\n")
+    setup = render
+    render = ["; Bank 1 page-safe graphics. Each sprite window has eight rows.\n"]
     # Three 80-byte streams fit in a 256-byte page, preserving five-cycle
     # indirect loads while reclaiming the old 128-byte alignment gaps.
     for index, (values, label) in enumerate(streams.items()):
@@ -219,31 +258,31 @@ def generate():
     turret = [0] * tuning["arena_rows"]
     turret[38:42] = [0x18, 0x3c, 0x7e, 0x3c]
     render.append(byte_lines("TurretRows", turret[::-1], 128))
-    for (name, shape), (burst_name, burst) in zip((
-        ("Triangle", [0x18, 0x3c, 0x7e, 0xff]),
-        ("Square", [0x7e, 0x42, 0x42, 0x7e]),
-        ("SquareReady", [0x7e] * 4),
-    ), BURSTS):
-        # Two sprites share the blank padding in one page. The ordinary enemy
-        # lives at offset 80; the burst at 164. Both 80-row pointer windows are
-        # page-safe and cannot see the other's graphic.
-        render.append(byte_lines("Sprite" + name, [0] * 80 + shape[::-1], 256))
-        render.append(byte_lines("Burst" + burst_name, [0] * 80 + burst[::-1] + [0] * 80))
+    for index, (name, shape) in enumerate(SPRITES):
+        assert len(shape) == 8
+        # Two padded shapes per page, at 80..87 and 168..175. Pointer low is
+        # label offset + EnemyY + 6; an 80-row read stays on-page for Y=0..76.
+        render.append(byte_lines(name, [0] * 80 + shape[::-1], 256 if index % 2 == 0 else None))
+        if index % 2:
+            render.append(byte_lines("", [0] * 80))
     hud = hud_rows()
     render.append("    IF DISPLAY_TEST\n")
     for plane in range(6):
         render.append(byte_lines(f"HudPlane{plane}", [row[plane] for row in hud], 32))
     render.append("    ELSE\n")
-    render.append(byte_lines("DigitOffsets", [digit * 5 for digit in range(10)]))
-    render.append(byte_lines("DigitLeft", [bits << 5 for glyph in DIGITS for bits in glyph]))
-    render.append(byte_lines("DigitRight", [int(f"{bits:03b}"[::-1], 2) for glyph in DIGITS for bits in glyph]))
+    setup.append("    IF DISPLAY_TEST = 0\n")
+    setup.append(byte_lines("DigitOffsets", [digit * 5 for digit in range(10)]))
+    setup.append(byte_lines("DigitLeft", [bits << 5 for glyph in DIGITS for bits in glyph]))
+    setup.append(byte_lines("DigitRight", [int(f"{bits:03b}"[::-1], 2) for glyph in DIGITS for bits in glyph]))
     health = [encode_row({24 + i * 3 for i in range(count)}) for count in range(6)]
     for plane in (1, 2):
-        render.append(byte_lines(f"HealthMask{plane}", [row[plane + 3] for row in health]))
+        setup.append(byte_lines(f"HealthMask{plane}", [row[plane + 3] for row in health]))
     for plane in (1, 2):
         for operator, suffix in (("<", "Lo"), (">", "Hi")):
-            render.append(f"HudStatus{plane}{suffix}:\n    .byte " +
+            setup.append(f"HudStatus{plane}{suffix}:\n    .byte " +
                           ",".join(f"{operator}HudText{mode}Left{plane}" for mode in range(3)) + "\n")
+    setup.append("    ENDIF\n")
+    (OUT / "render_tables.inc").write_text("".join(setup))
     for mode, word in enumerate(("FIRE", "PLAY", "OVER", "BOMB")):
         rows = [encode_row({4 + i * 4 + bit for i, char in enumerate(word)
                             for bit in range(3) if FONT[char][y] & (4 >> bit)}) for y in range(5)]
@@ -266,7 +305,7 @@ def generate():
                 values = (0, 0, 76, 38)
             for field, value in zip(("Flags", "Radius", "X", "Y"), values):
                 fixture_data[f"Fixture{field}{slot}"].append(value)
-    # Beam palette belongs to bank 0: game logic freezes its hue on release.
+    # Beam palette belongs to bank 0: game logic selects a shot hue (legacy release hue in diagnostics).
     (OUT / "fixtures.inc").write_text(byte_lines("BeamColors", tuning["beam_colors"]) +
                                       "".join(byte_lines(name, values) for name, values in fixture_data.items()))
     movement = []

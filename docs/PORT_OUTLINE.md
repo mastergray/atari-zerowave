@@ -67,7 +67,7 @@ These are adaptation rules, not behavior recovered from a completed original gam
 | Fast triangle | Smaller, magenta triangle | Beam only | 1 | Fastest enemy, including compared with the diamond near the turret |
 | Standard square | Existing pink square | Bomb only | 1 | Steady approach speed |
 | Armored square | Larger square with a visible damaged state | Bomb only | 2 | Slow enough to allow two separate bombs before contact |
-| Blue diamond | Blue diamond silhouette | Beam and bomb | More than 1; exact value remains a tuning choice | Accelerates as distance to the turret decreases; capped below the fast triangle |
+| Blue diamond | Blue diamond silhouette | Beam and bomb | 3 initially; tunable | Accelerates as distance to the turret decreases; capped below the fast triangle |
 
 The small magenta triangle still has only one health and dies to one beam hit,
 but deals two damage to the player on contact. All other types deal one contact
@@ -84,7 +84,7 @@ spawn weights need playtesting. The weapon vulnerabilities, magenta triangle's
 one health, top speed, and double contact damage, and distance-based diamond
 acceleration are fixed design requirements.
 
-Proposed attack feedback: an enemy briefly pulses gray when the wrong weapon
+Attack feedback: an enemy briefly pulses gray when the wrong weapon
 hits it, while keeping its silhouette visible. A successful nonlethal hit uses
 a bright white flash; a kill uses the existing expanding destruction burst.
 A beam shot on a square triggers the gray pulse once; an in-range bomb on a
@@ -159,11 +159,10 @@ If this version does not fit cleanly, cut in this order: decorative indicators a
 
 Preserve the eight-way beam and bomb button throughout those experiments. After testing the accepted ring/beam experiment and completing the reduced game, prioritize higher enemy counts for later levels before further visual effects. Charge bombs, sweep effects, shifters, reflectors, XP, and weapon upgrades remain outside the initial scope; level progression is included.
 
-The playable prototype currently implements standard triangles and squares,
-beam/bomb damage, health, score, destruction bursts, and restart with stable
-emulator timing. It still fires continuously while the stick is held, fades on
-release, lets bombs destroy triangles, and uses fixed opening difficulty. The
-revised beam controls, vulnerabilities, and variants above are the next planned
-change, followed by level progression. Hardware readability and later-level enemy
-counts remain to be validated. The earlier static display fixtures remain
-available in a separate diagnostic ROM.
+The playable prototype now implements all five variants, one beam shot per
+joystick flick, automatic shot fades, the revised vulnerabilities, gray/white
+attack feedback, health, score, destruction bursts, and restart. It uses fixed
+difficulty with all types available for playtesting and at most one bomb-only
+enemy active. Level progression, hardware readability, and later-level enemy
+counts remain to be validated. The earlier static display fixtures and held-beam
+behavior remain available in a separate diagnostic ROM.

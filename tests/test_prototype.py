@@ -340,19 +340,29 @@ class CartridgeTests(unittest.TestCase):
         origin = machine.bus.vsync_edges[-1] // 76 * 76
         selected = machine.value("SelectedSlot")
         ball_kernel = machine.value("BallKernel")
-        top = machine.value("EnemyY", selected) if selected != 255 else 0
+        top = machine.value("EnemyY", selected) - 2 if selected != 255 else 0
         kind = machine.value("EnemyFlags", selected) if selected != 255 else 0
-        shape = [0x18, 0x3c, 0x7e, 0xff]
-        if kind & 0x40:
+        tuning = assets.load_config()
+        types = {t["id"]: t for t in tuning["enemy_types"]}
+        enemy = types[(kind >> 4) & 7] if kind & 0x80 else types[0]
+        graphic = enemy["sprite"]
+        color_expected = enemy["color"]
+        if kind & 0xc0 == 0xc0:
+            if machine.value("EnemyHealth", selected) == 1:
+                graphic = 2
             radius = machine.value("EnemyRadiusHi", selected) * 256 + machine.value("EnemyRadiusLo", selected)
-            shape = [0x7e] * 4 if radius <= 24 * 256 else [0x7e, 0x42, 0x42, 0x7e]
+            graphic += radius <= 24 * 256
         if selected != 255 and machine.value("EnemyVisual", selected):
-            tuning = assets.load_config()
             timer = machine.value("EnemyVisual", selected)
-            stage = (len(assets.BURSTS) * tuning["enemy_burst_stage_frames"] - timer) // tuning["enemy_burst_stage_frames"]
-            shape = assets.BURSTS[stage][1]
-            top -= 2
-            self.assertEqual(machine.bus.tia[0x07], tuning["enemy_burst_colors"][stage])
+            if kind & 0x80:
+                color_expected = tuning["colors"]["hit" if timer & 0x80 else "immune"]
+            else:
+                stage = (len(assets.BURSTS) * tuning["enemy_burst_stage_frames"] - timer) // tuning["enemy_burst_stage_frames"]
+                graphic = 7 + stage
+                color_expected = tuning["enemy_burst_colors"][stage]
+        shape = assets.SPRITES[graphic][1]
+        if selected != 255:
+            self.assertEqual(machine.bus.tia[0x07], color_expected)
         writes = []
         color = None
         for cycle, register, value in machine.bus.events:

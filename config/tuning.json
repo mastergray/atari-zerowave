@@ -13,21 +13,34 @@
   "bomb_sound_frames": 6,
   "beam_colors": [14, 174, 142, 110, 78, 46, 206, 222],
   "beam_fade_start": 15,
+  "beam_sound_frames": 5,
+  "hit_flash_frames": 6,
+  "immune_flash_frames": 6,
+  "diamond_mid_radius": 40,
+  "diamond_near_radius": 24,
+  "diamond_mid_speed": 48,
+  "diamond_near_speed": 64,
+  "spawn_types": [4, 5, 1, 2, 1, 0, 0, 0],
+  "enemy_types": [
+    {"id": 0, "name": "triangle", "health": 1, "speed": 32, "damage": 1, "weapons": 1, "score": 10, "color": 206, "sprite": 0},
+    {"id": 1, "name": "fast_triangle", "health": 1, "speed": 80, "damage": 2, "weapons": 1, "score": 20, "color": 94, "sprite": 1},
+    {"id": 2, "name": "diamond", "health": 3, "speed": 32, "damage": 1, "weapons": 3, "score": 40, "color": 142, "sprite": 6},
+    {"id": 4, "name": "square", "health": 1, "speed": 32, "damage": 1, "weapons": 2, "score": 25, "color": 78, "sprite": 2},
+    {"id": 5, "name": "armored_square", "health": 2, "speed": 20, "damage": 1, "weapons": 2, "score": 50, "color": 78, "sprite": 4}
+  ],
   "start_hp": 5,
   "enemy_cap": 2,
-  "enemy_speed": 32,
   "spawn_interval": 90,
-  "square_weight": 1,
   "square_spawn_gap": 72,
   "enemy_burst_stage_frames": 6,
   "enemy_burst_colors": [14, 46, 68],
   "colors": {
     "turret": 14,
-    "triangle": 206,
-    "square": 78,
     "ready": 198,
     "waiting": 38,
     "background": 0,
-    "bomb": 46
+    "bomb": 46,
+    "immune": 6,
+    "hit": 14
   }
 }
