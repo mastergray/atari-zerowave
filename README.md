@@ -6,9 +6,10 @@ The cartridge targets NTSC, uses ordinary 8 KiB F8 banking, and needs no extra R
 
 The current build is a playable two-enemy combat prototype: approaching triangles
 and squares, beam and bomb kills, five health points, a four-digit score, and
-start/game-over/restart screens. It uses fixed opening difficulty; enemy variants,
-levels, and higher enemy counts are planned next. The approved thin beam, color
-cycle, release fade, and expanding bomb ring are retained.
+start/game-over/restart screens. It uses fixed opening difficulty; beam shots per
+joystick flick, enemy variants, levels, and higher enemy counts are planned next.
+The current ROM still uses the thin held beam, color cycle, release fade, and
+expanding bomb ring.
 
 ## Build and run
 
@@ -84,7 +85,12 @@ deals two player damage on contact but dies to one beam hit,
 a larger square requiring two bombs, and a tougher blue diamond that takes
 either attack and accelerates toward the turret. A brief gray sprite pulse is
 proposed for ineffective attacks, distinct from a white successful-hit flash.
-These changes are specified but not implemented yet.
+These changes are specified but not implemented yet. The revised beam controls
+also require a separate joystick flick for every shot: push from center to fire
+once, then center the stick before firing again. Each shot deals damage once and
+fades automatically, even while held. Holding or moving directly between
+directions will not repeat. The current ROM still uses continuous held fire and
+release-triggered fade as described above.
 
 Destroyed enemies leave a short burst at the hit position: a white flash, gold
 sparks, then dim red embers over 18 updates (about 0.3 seconds). Kills and score
@@ -148,8 +154,9 @@ Assembly lives in `src/`; `config/` contains tuning and static fixtures;
 `tools/generate_assets.py` produces the shared graphics tables. The independent
 Godot reference checkout in `res/` is ignored by this repository.
 
-Next is the revised weapon/type matrix and enemy variants, followed by the level
-table, level transitions, and additional hit/death sounds. Keep the two-enemy cap
+Next is beam shots per joystick flick, the revised weapon/type matrix, and enemy
+variants, followed by the level table, level transitions, and additional hit/death
+sounds. Keep the two-enemy cap
 until the later sprite reuse work establishes a readable schedule for three or
 four enemies.
 
