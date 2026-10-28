@@ -55,6 +55,8 @@ def check(display=False):
         "beam_trigger": "held (legacy diagnostic)" if display else "center-to-direction flick",
         "enemy_types": manifest["tuning"]["enemy_types"],
         "enemy_burst_updates": sym["ENEMY_BURST_FRAMES"],
+        "immunity_feedback_updates": sym["IMMUNE_FLASH_FRAMES"],
+        "player_hit_flash_updates": sym["PLAYER_HIT_FRAMES"],
         "bomb_radii": manifest["bomb_radii"],
         "bomb_animation_frames": manifest["bomb_animation_frames"],
         "reference_commit": "fb68a689d3fa6346696dd2310e5dd3d167c065a1",

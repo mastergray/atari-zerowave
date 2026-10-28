@@ -11,7 +11,7 @@ EnemyHealth = EnemyPhase  ; legacy diagnostic phase is unused in gameplay
 EnemyAge        ds 4
 EnemyVisual     ds 4
 ; Inactive: destruction lifetime. Active: bit 7 successful hit, low 7 feedback
-; lifetime (gray immunity pulse when bit 7 is clear). Zero means normal color.
+; lifetime (yellow/orange immunity shake when bit 7 is clear). Zero is normal.
 ; Prototype diagnostics occupy future game-state bytes.
 LayoutId        ds 1
 FrameCounter    ds 1
@@ -42,6 +42,7 @@ HudHealth1      ds 1
 HudHealth2      ds 1
 AudioReserved   ds 6
 ShotSoundTimer = AudioReserved
+PlayerHitTimer = AudioReserved+1
 BeamLeft1       ds 2
 BeamLeft2       ds 2
 BeamRight0      ds 2

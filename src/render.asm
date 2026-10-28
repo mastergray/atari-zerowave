@@ -10,6 +10,9 @@ PrepareRender:
     SUBROUTINE
     IF DISPLAY_TEST = 0
     jsr PrepareHud
+    ldy PlayerHitTimer
+    lda PlayerHitColorByTimer,y
+    sta COLUBK            ; one background color for the whole visible picture
     ENDIF
     lda FrameCounter
     and #1
@@ -135,8 +138,11 @@ PrepareRender:
     lda EnemyVisual,x
     beq .graphic
     bmi .hit
-    lda #COLOR_IMMUNE
-    bne .color
+    sty Temp
+    tay
+    lda ImmuneColorByTimer,y
+    ldy Temp
+    jmp .color
 .hit:
     lda #COLOR_HIT
 .color:
@@ -150,6 +156,13 @@ PrepareRender:
     adc GraphicLo,y       ; labels are at offsets 0 or 88, no carry
     sta EnemySprite
     lda EnemyX,x
+    ldy EnemyFlags,x
+    bpl .positionEnemy
+    ldy EnemyVisual,x
+    beq .positionEnemy
+    bmi .positionEnemy
+    clc
+    adc ImmuneOffsetByTimer,y ; cosmetic shake; collision position never moves
     jmp .positionEnemy
 .noEnemy:
     lda #<SpriteTriangle  ; first 80 rows are zero

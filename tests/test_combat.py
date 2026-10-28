@@ -173,8 +173,8 @@ class CombatTests(unittest.TestCase):
                 self.assertEqual(m.value("EnemyHealth"), hp)
                 self.assertEqual(m.value("EnemyFlags") != 0, hp > 0)
                 self.assertEqual(self.score(m), kind["score"] if hp == 0 else 0)
-                self.assertEqual(m.value("EnemyVisual"), 18 if hp == 0 else 134 if damaged else 6)
-                for _ in range(6):
+                self.assertEqual(m.value("EnemyVisual"), 18 if hp == 0 else 134 if damaged else 18)
+                for _ in range(6 if damaged else 18):
                     self.assert_arena_colors_and_sprites(m)
                     self.frame(m, 8 if weapon == 1 else 0, fire=weapon == 2)
                     self.assertEqual(m.value("EnemyHealth"), hp)
@@ -285,6 +285,87 @@ class CombatTests(unittest.TestCase):
                         self.frame(m)
                         self.assert_arena_colors_and_sprites(m)
                         self.assertLessEqual(m.value("EnemyAge", 1), 1)
+
+    def test_immunity_feedback_lasts_three_stages_without_moving_combat_position(self):
+        for phase in (0, 1):
+            m = self.game()
+            m.poke("FrameCounter", phase)
+            self.enemy(m, 0, 2, 20, kind=4)
+            self.enemy(m, 1, 6, 40, kind=2)
+            appearances = [[], [], []]
+            for elapsed in range(19):
+                self.frame(m, 8)
+                self.assertEqual(m.value("EnemyVisual"), max(0, 18 - elapsed))
+                self.assertEqual(m.value("EnemyHealth"), 1)
+                self.assertEqual(self.score(m), 0)
+                x, y = assets.center(2, 20, assets.load_config())
+                self.assertEqual((m.value("EnemyX"), m.value("EnemyY")), (x - 4, y - 2))
+                self.assert_arena_colors_and_sprites(m)
+                if elapsed < 18:
+                    appearances[elapsed // 6].append(m.value("SelectedSlot"))
+                    if m.value("SelectedSlot") == 0:
+                        self.assertEqual(m.bus.tia[0x07], (30, 46, 30)[elapsed // 6])
+            self.assertTrue(all(slots.count(0) == slots.count(1) == 3 for slots in appearances))
+
+    def assert_background(self, m, expected):
+        origin = m.bus.vsync_edges[-1] // 76 * 76
+        writes = [(cycle, value) for cycle, register, value in m.bus.events if register == 0x09]
+        self.assertEqual([value for _, value in writes], [expected])
+        self.assertLess(writes[0][0] - origin, 40 * 76, "Background must be set before the HUD")
+        self.assertEqual(m.bus.tia[0x09], expected)
+
+    def test_player_damage_flashes_whole_picture_and_expires_after_game_over(self):
+        for hp in (1, 5):
+            m = self.game()
+            m.poke("Health", hp)
+            self.enemy(m, 0, 0, 8)
+            self.enemy(m, 1, 2, 40, kind=2)
+            for elapsed in range(13):
+                self.frame(m)
+                self.assertEqual(m.value("PlayerHitTimer"), max(0, 12 - elapsed))
+                self.assertEqual(m.value("Health"), hp - 1)
+                self.assertEqual(m.value("GameMode"), 2 if hp == 1 else 1)
+                self.assert_background(m, (72, 70, 68, 66)[elapsed // 3] if elapsed < 12 else 0)
+                self.assert_arena_colors_and_sprites(m)
+
+    def test_player_flash_retrigger_reset_and_simultaneous_contacts(self):
+        m = self.game()
+        self.enemy(m, 0, 0, 8)
+        self.frame(m)
+        for _ in range(6):
+            self.frame(m)
+        self.enemy(m, 0, 0, 8, kind=1)
+        self.frame(m)
+        self.assertEqual(m.value("Health"), 2)
+        self.assertEqual(m.value("PlayerHitTimer"), 12)
+        self.assert_background(m, 72)
+        self.frame(m, reset=True)
+        self.assertEqual(m.value("PlayerHitTimer"), 0)
+        self.assert_background(m, 0)
+        self.enemy(m, 0, 0, 8, kind=1)
+        self.enemy(m, 1, 4, 8, kind=1)
+        self.frame(m)
+        self.assertEqual(m.value("Health"), 1)
+        self.assertEqual(m.value("PlayerHitTimer"), 12)
+        self.assert_background(m, 72)
+
+    def test_damage_flash_coexists_with_beam_bomb_and_does_not_grant_invulnerability(self):
+        m = self.game()
+        self.enemy(m, 0, 0, 8)
+        self.enemy(m, 1, 2, 20, kind=5)
+        for elapsed in range(13):
+            self.frame(m, 8, fire=True)
+            self.assertEqual(m.value("Health"), 4)
+            self.assertEqual(m.value("EnemyHealth", 1), 1)
+            self.assert_background(m, (72, 70, 68, 66)[elapsed // 3] if elapsed < 12 else 0)
+            self.assert_rendered_pattern(m, m.value("DisplayPattern"))
+            self.assert_arena_colors_and_sprites(m)
+        self.frame(m, reset=True)
+        self.enemy(m, 0, 2, 8)
+        self.frame(m, 8)
+        self.assertEqual(m.value("Health"), 5, "A lethal shot prevents contact and the player flash")
+        self.assertEqual(m.value("PlayerHitTimer"), 0)
+        self.assert_background(m, 0)
 
     def test_bomb_fixed_point_boundary_and_fill_cue(self):
         for square in (True,):

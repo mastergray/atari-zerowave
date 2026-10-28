@@ -15,7 +15,9 @@
   "beam_fade_start": 15,
   "beam_sound_frames": 5,
   "hit_flash_frames": 6,
-  "immune_flash_frames": 6,
+  "immune_flash_frames": 18,
+  "player_hit_stage_frames": 3,
+  "player_hit_colors": [72, 70, 68, 66],
   "diamond_mid_radius": 40,
   "diamond_near_radius": 24,
   "diamond_mid_speed": 48,
@@ -40,7 +42,8 @@
     "waiting": 38,
     "background": 0,
     "bomb": 46,
-    "immune": 6,
+    "immune": 30,
+    "immune_accent": 46,
     "hit": 14
   }
 }

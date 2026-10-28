@@ -170,6 +170,11 @@ def generate():
     assert set(kinds) == {0, 1, 2, 4, 5}
     assert len(tuning["spawn_types"]) == 8 and set(tuning["spawn_types"]) == set(kinds)
     assert 0 < tuning["hit_flash_frames"] < 128 and 0 < tuning["immune_flash_frames"] < 128
+    assert tuning["immune_flash_frames"] % 6 == 0, "Three even stages preserve both draw phases"
+    assert tuning["player_hit_stage_frames"] > 0 and tuning["player_hit_colors"]
+    assert all(0 <= color <= 255 for color in tuning["player_hit_colors"])
+    player_hit_frames = tuning["player_hit_stage_frames"] * len(tuning["player_hit_colors"])
+    assert player_hit_frames < 256
     assert 0 < tuning["beam_sound_frames"] <= 15
     assert tuning["contact_radius"] < tuning["diamond_near_radius"] < tuning["diamond_mid_radius"] < tuning["spawn_radius"]
     assert kinds[2]["speed"] < tuning["diamond_mid_speed"] < tuning["diamond_near_speed"] < kinds[1]["speed"] <= 255
@@ -193,6 +198,7 @@ def generate():
         constants.append(f"{name.upper()} = {tuning[name]}")
     constants.append(f"BOMB_ANIMATION_FRAMES = {animation_frames}")
     constants.append(f"ENEMY_BURST_FRAMES = {burst_frames}")
+    constants.append(f"PLAYER_HIT_FRAMES = {player_hit_frames}")
     for name, value in tuning["colors"].items():
         constants.append(f"COLOR_{name.upper()} = ${value:02x}")
     constants.append(f"FIXTURE_COUNT = {len(fixtures)}")
@@ -232,6 +238,15 @@ def generate():
             streams[values] = f"BeamMotionStream{len(streams)}"
         motion_labels.append(streams[values])
     render = ["; Bank 0 display setup tables; pointers refer to bank 1 data.\n"]
+    immune_stages = [0] + [(tuning["immune_flash_frames"] - timer) // (tuning["immune_flash_frames"] // 3)
+                           for timer in range(1, tuning["immune_flash_frames"] + 1)]
+    render.append(byte_lines("ImmuneColorByTimer", [
+        (tuning["colors"]["immune"], tuning["colors"]["immune_accent"], tuning["colors"]["immune"])[stage]
+        for stage in immune_stages]))
+    render.append(byte_lines("ImmuneOffsetByTimer", [(254, 2, 0)[stage] for stage in immune_stages]))
+    render.append(byte_lines("PlayerHitColorByTimer", [tuning["colors"]["background"]] + [
+        tuning["player_hit_colors"][(player_hit_frames - timer) // tuning["player_hit_stage_frames"]]
+        for timer in range(1, player_hit_frames + 1)]))
     stages = [0] + [(burst_frames - timer) // tuning["enemy_burst_stage_frames"]
                     for timer in range(1, burst_frames + 1)]
     render.append(byte_lines("BurstSpriteByTimer", [7 + stage for stage in stages]))

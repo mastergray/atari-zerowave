@@ -94,10 +94,16 @@ does not damage later arrivals. Triangles are immune to bombs, and squares are
 immune to the beam. A diamond can take one damage from each weapon in the same
 update, but awards score only once when destroyed.
 
-An ineffective attack briefly turns its target gray. A successful nonlethal hit
-flashes white. These cues last six updates (about 0.1 seconds); damage feedback
+An ineffective attack flashes its target bright yellow/orange and gives the
+sprite a small sideways shake for 18 updates (about 0.3 seconds). A successful
+nonlethal hit flashes white for six updates (about 0.1 seconds). Damage feedback
 takes priority when both weapons hit at once. Misses, out-of-range bombs, held
 controls, and cosmetic beam/ring animation do not trigger more flashes.
+
+Player damage flashes the whole background red, including behind the HUD, then
+fades back to black over 12 updates (about 0.2 seconds). The flash also plays on
+the final hit before game over. Further contacts still deal damage; a new hit
+restarts the flash, and starting/resetting a run clears it.
 
 Destroyed enemies leave a short burst at the hit position: a white flash, gold
 sparks, then dim red embers over 18 updates (about 0.3 seconds). Kills and score
@@ -105,7 +111,7 @@ apply immediately. A burst temporarily occupies the old sprite slot, so a new
 spawn may wait for it to finish when both display slots are occupied.
 
 For this playtest, check deliberate diagonal flicks, repeat shots at diamonds,
-the magenta triangle's urgency, the gray/white feedback, and whether armored
+the magenta triangle's urgency, the attack/player-damage feedback, and whether armored
 squares leave enough time for two bombs. Let enemies through once to compare
 ordinary contact damage with the small triangle's double damage.
 
@@ -125,7 +131,7 @@ appearances further.
 
 ## Validation and development
 
-`make check` runs 51 tests covering generated geometry, all joystick combinations,
+`make check` runs 55 tests covering generated geometry, all joystick combinations,
 button edges and exact cooldown boundaries, both startup banks, stack/guard
 integrity, fixed frame lengths, kernel write deadlines, and display fairness.
 Tests check every animation stage for presses on either frame phase, actual
@@ -138,7 +144,9 @@ priority, BCD score carries/saturation, start/reset input edges, spawn limits,
 square spacing, HUD digits/health, and a scripted survival run of at least 1,400
 frames that encounters and defeats all five types. New checks cover flick rearming,
 fading while held/released, every weapon/type pair, nonlethal/immunity flashes,
-two-bomb armor, accelerating movement, and double contact damage.
+two-bomb armor, accelerating movement, and double contact damage. Feedback checks
+cover all immunity stages on both draw phases and the red background throughout
+the HUD and arena, including repeated hits, reset, and fatal damage.
 Burst checks cover all eight hit directions, every animation stage, double bomb
 kills, surviving-enemy visibility, spawn deferral, expiry, and reset/game over.
 `build/combat-timing.json` records the measured update/prepare costs and stack use.
@@ -154,10 +162,11 @@ The display ROM saves 56 TIA snapshots: neutral, both phases of all eight
 directions, all 16 bomb frames, and both phases of the three overlap layouts
 during the largest ring, plus the last held beam, all 15 release frames, and the
 cleared frame. Results are indexed by
-`build/stella/latest.json`. The playable ROM adds 59 captures of natural movement,
+`build/stella/latest.json`. The playable ROM adds 68 captures of natural movement,
 two-enemy drawing, kills, exact bomb-range boundaries, game over/restart, and HUD
 values, destruction-burst stages, variant portraits, manual multi-shot damage,
-armor loss, immunity/hit flashes, and double contact damage, indexed by
+armor loss, immunity/hit flashes, double contact damage, and red-flash fade/reset,
+indexed by
 `build/stella/latest-combat.json`. Validated with Stella 6.0.2. See
 [kernel timing notes](docs/KERNEL_TIMING.md) for the measured budgets and limits.
 Television flicker, real joystick diagonals, and sound still need a hardware pass.

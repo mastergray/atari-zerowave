@@ -93,6 +93,9 @@ Game geometry uses an eight-way lane and a radial distance, not free Cartesian m
 | `BOMB_SOUND_FRAMES` | 6 updates | Short noise envelope independent of animation |
 | `BEAM_FADE_START` | 15 | Initial shot brightness; countdown through 1, then hide, independent of release |
 | `ENEMY_BURST_FRAMES` | 18 updates | Three destruction stages, six updates each |
+| `IMMUNE_FLASH_FRAMES` | 18 updates | Three bright yellow/orange shake stages |
+| `HIT_FLASH_FRAMES` | 6 updates | White nonlethal enemy-hit flash |
+| `PLAYER_HIT_FRAMES` | 12 updates | Four red background shades, three updates each |
 | `LEVEL_BREAK` | 60 updates | Pause after a cleared level |
 | `SQUARE_SPAWN_GAP` | 72 updates | Minimum spacing between square spawns |
 
@@ -172,12 +175,14 @@ Squares change from an outline to a filled silhouette when inside bomb range. Th
 
 ### Ineffective-attack cue
 
-Use a brief gray pulse on the target sprite to signal weapon immunity. Keep its
-shape and position intact, including the square's armor and bomb-range cues.
-The cue uses six updates of gray (about 0.1 seconds), then restores the type color;
-the gray luminance and duration remain provisional. It stays visible,
-distinct from the white successful-hit flash and the moving destruction burst.
-Do not hide the sprite or add another display phase to create the pulse.
+Signal weapon immunity with an 18-update bright yellow/orange flash and a small
+sideways shake. Three six-update stages use colors `$1E`, `$2E`, `$1E` and draw
+offsets -2, +2, 0 color clocks respectively. Keep the original silhouette,
+including square armor and bomb-range cues. The cached enemy coordinates and
+collision position remain unchanged. Restore its normal color when the timer
+expires. This is distinct from the six-update white successful-hit flash and
+the expanding destruction burst. Do not hide the sprite or add a display phase.
+Each six-update stage includes three appearances for either draw phase.
 
 Trigger the pulse only when an attack reaches an immune target: a new beam shot
 on a square's lane, or an accepted bomb with a triangle inside its exact radius.
@@ -198,6 +203,22 @@ The live slot's `EnemyVisual` byte stores the timer in bits 0–6 and a successf
 hit flag in bit 7. Death replaces it with the burst lifetime. Both draw phases
 are tested so the pulse cannot disappear because of alternate-frame scheduling.
 
+### Player damage feedback
+
+A contact that reduces player health starts `PlayerHitTimer` at 12. Set the
+whole visible background, including the HUD and arena, to `$48`, `$46`, `$44`,
+then `$42` for three updates each before returning to black. Background color
+is selected during blanking and stays fixed throughout each visible picture.
+Clear HMCLR/ENABL with zero independently of the flash color.
+
+Advance the timer before combat, including during game over, so a newly started
+flash has its full lifetime and fatal hits still show it. Multiple contacts in
+one update share one flash; another contact on a later update restarts it.
+Contacts continue to deal their normal damage. A lethal attack that prevents
+contact does not start the player flash. Starting or resetting a run clears the
+timer; stopping weapons on game over does not. The timer uses one former audio
+reserve byte and does not change the sprite schedule.
+
 ## Modes and level transitions
 
 | Mode | Behavior | Exit |
@@ -217,12 +238,12 @@ Entering `LEVEL_BREAK` sets its counter to 60; each following update decrements 
 
 One game update produces the state for the next visible frame:
 
-After sampling input, advance existing burst timers in all modes before handling
+After sampling input, advance existing enemy-feedback/burst and player-hit timers in all modes before handling
 reset or transitions. A burst created by later combat keeps its full lifetime
 for that first picture.
 
 1. Sample and normalize input; handle RESET or non-play mode transitions.
-2. Decrement nonzero cooldown, bomb-animation, spawn, square-spacing, and attack-feedback timers. A timer set later in this update is not decremented again.
+2. Decrement nonzero cooldown, bomb-animation, spawn, square-spacing timers. A timer set later in this update is not decremented again.
 3. Move enemies that were active at the start of the update.
 4. Accept a rearmed joystick direction as one beam event and latch its shot direction. Accept a fresh bomb press if ready; set cooldown to 60 and bomb-animation timer to 16. Emit each attack event for damage and sound once; clear events at the start of the next update.
 5. Resolve bomb damage, eligible beam damage, and surviving center contacts in that order. Award kills only when enemy health reaches zero.
@@ -320,7 +341,7 @@ After level 8, reuse the final difficulty row. Track a displayed level number up
 
 ## Beam and enemy rendering
 
-Use the ball for vertical/diagonal beams and the playfield for horizontal beams and bomb outlines, with player 0 for the turret and player 1 for enemies. Leave missiles disabled. Keep the background black; use cycling rainbow colors for beam frames and fixed gold for ring frames. HUD graphics occupy a separate vertical region.
+Use the ball for vertical/diagonal beams and the playfield for horizontal beams and bomb outlines, with player 0 for the turret and player 1 for enemies. Leave missiles disabled. Keep the background black except during the brief red player-hit flash; use cycling rainbow colors for beam frames and fixed gold for ring frames. HUD graphics occupy a separate vertical region.
 
 The beam uses eight fixed rays, one selected by the shot's latched direction.
 Vertical and diagonal rays are one color clock wide; diagonal ball motion
@@ -382,7 +403,7 @@ The current map uses the full available address range, with explicit reserve and
 | `$80–$9F` | 32 | Four enemy slots, eight arrays of four bytes |
 | `$A0–$AF` | 16 | Diagnostic layout ID, frame counter, bomb count, mode, HP, two score bytes, spawn timer, square timer, RNG, active count, cap, movement enable, spawn interval, beam palette index, beam rearm latch |
 | `$B0–$B7` | 8 | Direction, last direction, previous button/reset bits, beam enable, bomb cooldown, bomb-animation timer, bomb event, frame phase |
-| `$B8–$BF` | 8 | Two HUD health masks, beam-shot sound timer, five audio reserves |
+| `$B8–$BF` | 8 | Two HUD health masks, beam-shot sound timer, player-hit timer, four reserves |
 | `$C0–$D7` | 24 | Renderer pointers, row bytes, and draw/HUD state |
 | `$D8–$E7` | 16 | Ten HUD score row bytes, four status-pointer bytes, draw-age temporary, general temporary; logic scratch aliases the HUD storage during overscan |
 | `$E8–$EF` | 8 | Unallocated margin; guard pattern in debug builds |
@@ -462,7 +483,8 @@ Host tests verify the integer model and generated data; they do not prove the as
 | Bomb boundary | With zero movement, an eligible target at `24.00` takes one damage and at `24.01` takes none; square fill agrees. Triangles survive at either radius. Armor survives one bomb and dies to a second; the ring cannot hit again. |
 | Resolution order | Same-frame beam+bomb can damage a diamond twice if eligible, but grants one kill per target. Lethal attacks prevent contact; a nonlethal hit does not. Multiple surviving contacts reduce player HP without underflow. |
 | Contact damage | Small magenta triangles deal two player damage; other enemies deal one. Enemy health and contact damage remain independent. Test one HP, two HP, simultaneous contacts, and a lethal attack on the contact update. |
-| Attack feedback | In-range immune hits pulse gray once per attack; real nonlethal hits flash white; kills show the burst. No immunity pulse for misses, rejected bombs, holds, or cosmetic fades. Both draw phases show the cue. Actual damage wins over simultaneous immunity feedback. |
+| Attack feedback | In-range immune hits flash yellow/orange and shake once per attack; real nonlethal hits flash white; kills show the burst. No immunity cue for misses, rejected bombs, holds, or cosmetic fades. Both draw phases show every stage. Actual damage wins over simultaneous immunity feedback. |
+| Player feedback | Damage starts a 12-update red background fade across HUD and arena, including fatal hits. Further hits still damage and restart it; reset clears it. Beam/ring/sprite output and frame timing remain correct throughout. |
 | Destruction burst | A scored kill draws all three stages at its final position, awards score once, and expires after 18 updates. Two bursts or a burst plus a live enemy each appear at least every other frame. A reserved burst slot cannot be reused early; reset clears all effects. |
 | Movement | Fractional stepping, subtraction near zero, and every lane/radius mapping are correct. Diamond speed increases at each inward distance band and stays below the magenta triangle. No variant or burst leaves the arena. |
 | Spawn limits | Never exceed active cap, duplicate a baseline lane, overwrite a live slot, or spin on failed placement. Square spacing is honored. |

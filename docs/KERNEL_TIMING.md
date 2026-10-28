@@ -135,7 +135,7 @@ the four rings. `DisplayPattern` records the prepared frame for debugger checks.
 The ring radii are 6, 12, 18, and 24 in the shared game geometry. Each stage lasts
 four updates, giving two visible appearances per stage regardless of the press
 phase. The animation lasts 16 updates. Both physical ring lines keep the same
-gold color; the arena background stays black. The outline replaces
+gold color; the arena background is normally black, with a red fade on player damage. The outline replaces
 the previous size, so no filled disk or trail accumulates.
 
 The playable ROM emits one `BeamEvent` when the stick moves from center into a
@@ -165,8 +165,8 @@ The five-update shot sound has its own timer in a former audio reserve byte.
 
 `BombEvent` also pulses once for immediate damage, independent of ring display
 phases. Bomb sound lasts six updates, its ring 16, and its cooldown 60. A bomb
-damages squares and diamonds, while triangles show gray immunity feedback.
-The beam damages triangles and diamonds; squares show gray feedback. A combined
+damages squares and diamonds, while triangles show vivid yellow/orange immunity feedback.
+The beam damages triangles and diamonds; squares show the same immunity feedback. A combined
 hit on a diamond can deal two damage but awards score only once on death.
 Bomb damage and square fill both compare the full 8.8 radius: `24.00` is inside,
 `24.01` is outside.
@@ -187,10 +187,13 @@ existing `Temp` scratch byte for the latter. Bursts reserve their old slots.
 A due spawn waits if the combined enemy/burst count is already two, keeping the
 one-omitted-frame limit for survivors. No extra persistent RAM is allocated.
 
-Live enemies reuse `EnemyVisual` for six-update feedback: bit 7 marks a white
-successful hit, otherwise the sprite pulses gray for an immune hit. The low
-seven bits hold the timer. On death it becomes the destruction timer; no extra
-per-enemy storage is needed. `EnemyHealth` reuses the old unused phase array.
+Live enemies reuse `EnemyVisual` for feedback: bit 7 marks a six-update white
+successful hit. Immunity uses 18 updates split into three six-update stages,
+with colors `$1E`, `$2E`, `$1E` and horizontal draw offsets -2, +2, 0 color clocks.
+Each stage gives either sprite phase three appearances. The shake affects only
+TIA positioning; cached coordinates and damage geometry remain unchanged.
+The low seven bits hold the timer. On death it becomes the destruction timer;
+no extra per-enemy storage is needed. `EnemyHealth` reuses the old unused phase array.
 The damaged armored square uses the smaller normal square graphic, with its
 own type/score retained. Range-fill selection remains independent of feedback.
 
@@ -207,23 +210,33 @@ and the sprite atlas, raster streams, HUD text, and timed kernels live in bank 1
 The bank stubs are byte-identical in both tails. Moving setup code/data makes
 room for the variants without adding instructions to either arena kernel.
 
+Player contact starts a 12-update background flash. `PlayerHitTimer` uses one
+former audio reserve byte; it advances before combat and also during game over.
+The shades `$48`, `$46`, `$44`, `$42` each last three updates, then return to black.
+Render preparation writes COLUBK during blanking, before the HUD; neither the
+frame setup nor the separator overwrites it in the playable ROM. All 192 visible
+lines therefore share the same background color. HMCLR and ENABL still receive
+zero in the separator. The diagnostic ROM retains its black background writes.
+New contacts restart the timer without reducing further contact damage. Reset
+clears it, while game-over weapon cleanup leaves the fatal-hit flash visible.
+
 ## Space and update budgets
 
 | Resource | Current measurement |
 | --- | --- |
-| Bank 0 end / room before trampoline | `$F9BB` / 1,477 bytes |
+| Bank 0 end / room before trampoline | `$FA0E` / 1,394 bytes |
 | Bank 1 end / room before trampoline | `$FD3D` / 579 bytes |
 | Cartridge | 8,192 bytes, identical bank tails and vectors |
 | RAM | Fixed 128-byte map, including reserves and stack |
 | Stack | Eight bytes observed; 16 reserved |
 | Guard | Eight bytes at `$E8–$EF`, intact in tested runs |
-| Update cost | 325–1,230 cycles from `GameFrame` to `LogicDone` |
-| Render preparation done | 1,392–1,620 cycles from VSYNC line start |
+| Update cost | 331–1,234 cycles from `GameFrame` to `LogicDone` |
+| Render preparation done | 1,392–1,696 cycles from VSYNC line start |
 
-The combat suite records 6,357 frame samples in `build/combat-timing.json`,
+The combat suite records 6,500 frame samples in `build/combat-timing.json`,
 including a survival run of at least 1,400 frames across all five types, movement/attack/contact boundaries, scoring,
 spawning, immunity/hit feedback, destruction bursts, HUD values, and restart. Tests enforce the 2,000-cycle update and
-2,400-cycle preparation limits. The static diagnostic build has 1,804 bytes free
+2,400-cycle preparation limits. The static diagnostic build has 1,721 bytes free
 in bank 0 and 456 in bank 1.
 
 Four 64-byte magnitude tables live in bank 0. Cardinal/diagonal signs reconstruct
@@ -256,12 +269,13 @@ with sprite pixels preserved. The NW ray occupies 92 screenshot pixels, down
 from 464, and retains one uniform hue during its fade. Cartridge tests also
 check ball-motion timing, clearing player motion, release in all eight directions
 and hues, re-aiming, reset, and fading during bombs with two enemies.
-The playable pass adds 59 snapshots of natural spawns/movement, both phases of a
+The playable pass adds 68 snapshots of natural spawns/movement, both phases of a
 two-enemy scene, triangle kills, square immunity, bomb-radius boundaries,
 game-over/restart, representative HUD values, and every burst stage alongside
 a surviving enemy or a second burst. Additional captures show all variants,
-a diamond defeated by three flicks, a held dark beam, gray immunity pulses,
-white successful hits, armor loss/two-bomb kills, and double contact damage.
+a diamond defeated by three flicks, a held dark beam, yellow/orange immunity shakes,
+white successful hits, armor loss/two-bomb kills, double contact damage, and
+every red-flash stage through game over and reset.
 Its debugger state confirms
 score awards and start/reset input handling. It uses explicit RAM fixtures only
 for boundary cases, after first exercising natural spawning and movement.

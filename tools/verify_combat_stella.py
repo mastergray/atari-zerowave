@@ -15,7 +15,8 @@ def main():
     commands, labels, advances = [], [], []
     fields = ("GameMode", "Health", "ScoreHi", "ScoreLo", "ActiveCount", "BombCount",
               "BombCooldown", "EnemyFlags", "EnemyRadiusHi", "EnemyRadiusLo", "BeamEnabled",
-              "EnemyVisual", "EnemyHealth", "SelectedSlot", "BeamArmed", "BeamDrawDirection", "BeamDrawColor")
+              "EnemyVisual", "EnemyHealth", "SelectedSlot", "BeamArmed", "BeamDrawDirection", "BeamDrawColor",
+              "PlayerHitTimer")
 
     def frame(count=1):
         commands.extend([f"frame #{count}", "print _cycleslo"])
@@ -204,7 +205,11 @@ def main():
     commands.append("joy0right #0")
     frame(2)
     capture("immune-square")
-    frame(8)
+    frame(6)
+    capture("immune-square-orange")
+    frame(6)
+    capture("immune-square-yellow")
+    frame(6)
     capture("immune-square-expired-held")
 
     fresh()
@@ -214,7 +219,7 @@ def main():
     capture("immune-triangle-0")
     frame()
     capture("immune-triangle-1")
-    frame(8)
+    frame(18)
     capture("immune-triangle-expired")
 
     fresh()
@@ -241,8 +246,21 @@ def main():
     poke("Health", 3)
     target(1, 8)
     capture("fast-contact")
+    for stage in range(1, 4):
+        frame(3)
+        capture(f"player-hit-fade-{stage}")
+    frame(3)
+    capture("player-hit-finished")
     target(1, 8)
     capture("fast-contact-game-over")
+    frame(12)
+    capture("player-hit-game-over-finished")
+
+    fresh()
+    target(1, 8)
+    capture("player-hit-before-reset")
+    fresh()
+    capture("player-hit-reset")
 
     run, values, snapshots, transcript = run_stella("atari-zerowave", commands, labels, advances, args.timeout)
     columns = {name: values("*" + name) for name in fields}
@@ -286,17 +304,25 @@ def main():
     expect("diamond-direct-turn", EnemyHealth=2, BeamEnabled=0, BeamDrawDirection=255)
     expect("diamond-shot-2", EnemyHealth=1, ScoreLo=0)
     expect("diamond-shot-3", EnemyHealth=0, EnemyFlags=0, ScoreLo=0x40)
-    expect("immune-square", EnemyHealth=1, EnemyVisual=5, ScoreLo=0)
+    expect("immune-square", EnemyHealth=1, EnemyVisual=17, ScoreLo=0)
+    expect("immune-square-orange", EnemyHealth=1, EnemyVisual=11, ScoreLo=0)
+    expect("immune-square-yellow", EnemyHealth=1, EnemyVisual=5, ScoreLo=0)
     expect("immune-square-expired-held", EnemyHealth=1, EnemyVisual=0, ScoreLo=0)
-    expect("immune-triangle-0", EnemyHealth=1, EnemyVisual=5, ScoreLo=0)
-    expect("immune-triangle-1", EnemyHealth=1, EnemyVisual=4, ScoreLo=0)
+    expect("immune-triangle-0", EnemyHealth=1, EnemyVisual=17, ScoreLo=0)
+    expect("immune-triangle-1", EnemyHealth=1, EnemyVisual=16, ScoreLo=0)
     expect("immune-triangle-expired", EnemyHealth=1, EnemyVisual=0, ScoreLo=0)
     expect("armor-hit-1", EnemyHealth=1, EnemyVisual=133, ScoreLo=0)
     for label in ("armor-damaged", "armor-rejected-bomb", "armor-held-bomb"):
         expect(label, EnemyHealth=1, EnemyVisual=0, ScoreLo=0, BombCount=1)
     expect("armor-hit-2", EnemyHealth=0, EnemyFlags=0, ScoreLo=0x50, BombCount=2)
-    expect("fast-contact", Health=1, EnemyFlags=0, ScoreLo=0)
-    expect("fast-contact-game-over", Health=0, GameMode=2, ScoreLo=0)
+    expect("fast-contact", Health=1, EnemyFlags=0, ScoreLo=0, PlayerHitTimer=11)
+    for stage in range(1, 4):
+        expect(f"player-hit-fade-{stage}", Health=1, PlayerHitTimer=11 - stage * 3)
+    expect("player-hit-finished", Health=1, PlayerHitTimer=0)
+    expect("fast-contact-game-over", Health=0, GameMode=2, ScoreLo=0, PlayerHitTimer=11)
+    expect("player-hit-game-over-finished", Health=0, GameMode=2, PlayerHitTimer=0)
+    expect("player-hit-before-reset", Health=3, PlayerHitTimer=11)
+    expect("player-hit-reset", Health=5, PlayerHitTimer=0)
     report = dict(directory=str(run.relative_to(ROOT)), session=transcript.name,
                   snapshots=dict(zip(labels, [p.name for p in snapshots])), states=states,
                   frame_lines=262, cycles_per_frame=19912)

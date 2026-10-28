@@ -8,6 +8,10 @@ UpdateGame:
     sta BombEvent
     jsr SampleInput
     jsr UpdateBursts       ; advance old effects, including during game over
+    lda PlayerHitTimer
+    beq .playerFlashDone
+    dec PlayerHitTimer
+.playerFlashDone:
     lda PressedButtons
     and #1
     bne .start
@@ -86,6 +90,7 @@ StartRun:
     sta SquareTimer
     sta ActiveCount
     sta BeamPalette
+    sta PlayerHitTimer
     lda #START_HP
     sta Health
     lda #ENEMY_CAP

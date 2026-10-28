@@ -355,7 +355,11 @@ class CartridgeTests(unittest.TestCase):
         if selected != 255 and machine.value("EnemyVisual", selected):
             timer = machine.value("EnemyVisual", selected)
             if kind & 0x80:
-                color_expected = tuning["colors"]["hit" if timer & 0x80 else "immune"]
+                if timer & 0x80:
+                    color_expected = tuning["colors"]["hit"]
+                else:
+                    stage = (tuning["immune_flash_frames"] - timer) // (tuning["immune_flash_frames"] // 3)
+                    color_expected = tuning["colors"]["immune_accent" if stage == 1 else "immune"]
             else:
                 stage = (len(assets.BURSTS) * tuning["enemy_burst_stage_frames"] - timer) // tuning["enemy_burst_stage_frames"]
                 graphic = 7 + stage

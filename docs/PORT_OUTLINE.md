@@ -84,13 +84,18 @@ spawn weights need playtesting. The weapon vulnerabilities, magenta triangle's
 one health, top speed, and double contact damage, and distance-based diamond
 acceleration are fixed design requirements.
 
-Attack feedback: an enemy briefly pulses gray when the wrong weapon
-hits it, while keeping its silhouette visible. A successful nonlethal hit uses
-a bright white flash; a kill uses the existing expanding destruction burst.
-A beam shot on a square triggers the gray pulse once; an in-range bomb on a
+Attack feedback: the wrong weapon triggers an 18-update bright yellow/orange
+flash with a small sideways shake, while keeping the enemy silhouette visible.
+A successful nonlethal hit uses a six-update white flash; a kill uses the
+existing expanding destruction burst. A beam shot on a square triggers the
+immunity cue once; an in-range bomb on a
 triangle triggers it once per detonation. Holding the stick, cosmetic fades,
 misses, and out-of-range bombs do not trigger the immunity cue. Pulse color and
 duration need visual playtesting.
+
+Player damage flashes the background red behind both the HUD and arena, fading
+to black over 12 updates. This also plays on fatal damage; reset clears it.
+The visual effect does not pause movement or prevent further contact damage.
 
 Introduce variants while retaining the validated two-enemy display cap, then
 use the level table to introduce them gradually. Increasing the number of enemy
@@ -160,8 +165,9 @@ If this version does not fit cleanly, cut in this order: decorative indicators a
 Preserve the eight-way beam and bomb button throughout those experiments. After testing the accepted ring/beam experiment and completing the reduced game, prioritize higher enemy counts for later levels before further visual effects. Charge bombs, sweep effects, shifters, reflectors, XP, and weapon upgrades remain outside the initial scope; level progression is included.
 
 The playable prototype now implements all five variants, one beam shot per
-joystick flick, automatic shot fades, the revised vulnerabilities, gray/white
-attack feedback, health, score, destruction bursts, and restart. It uses fixed
+joystick flick, automatic shot fades, the revised vulnerabilities, vivid immunity
+and hit feedback, red player-damage flashes, health, score, destruction bursts,
+and restart. It uses fixed
 difficulty with all types available for playtesting and at most one bomb-only
 enemy active. Level progression, hardware readability, and later-level enemy
 counts remain to be validated. The earlier static display fixtures and held-beam

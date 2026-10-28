@@ -95,7 +95,9 @@ SeparatorLoop:
     lda ArenaColor
     sta COLUPF
     lda #COLOR_BACKGROUND
+    IF DISPLAY_TEST
     sta COLUBK
+    ENDIF
     sta HMCLR             ; well after blanking HMOVE; players stay stationary
     sta ENABL
     ldy #ARENA_ROWS-1      ; reverse indexing saves two loop cycles

@@ -19,8 +19,10 @@ PrepareDone:
     sta WSYNC             ; blank line 36
     lda HudColor
     sta COLUPF
+    IF DISPLAY_TEST
     lda #COLOR_BACKGROUND
     sta COLUBK
+    ENDIF
     lda #0
     sta PF0
     sta PF1

@@ -66,6 +66,8 @@ ResolveCombat:
     lda #0
 .health:
     sta Health
+    lda #PLAYER_HIT_FRAMES
+    sta PlayerHitTimer     ; repeated contacts in this update share one flash
     lda #0
     sta EnemyFlags,x
     sta EnemyHealth,x
