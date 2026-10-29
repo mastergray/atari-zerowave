@@ -1,9 +1,10 @@
 # Prototype kernel timing
 
-This records the playable two-enemy variant prototype with flick-to-fire beams, levels, and
-the separate static display-test ROM. Measurements were taken from the assembled
-F8 cartridges with the py65 harness and Stella 6.0.2. They do not certify
-television readability or the future larger-enemy-count paths.
+This records the playable three-enemy variant prototype with flick-to-fire beams, levels, and
+the separate static display-test ROM. CPU/register measurements come from the assembled F8 cartridges and the py65
+harness. The new density kernel also has 22 inspected Stella 6.0.2 captures taken with
+SDL dummy video. Television readability and the full X11 debugger transcript
+pass remain separate from those still-image checks.
 
 ## Frame layout
 
@@ -57,31 +58,31 @@ begins. Both digits remain visible every frame; the HUD still takes 24 lines.
 
 ## Arena scanline schedule
 
-The following are CPU cycles at instruction completion, counted from WSYNC
-release, for the playfield kernel (left/right rays, rings, and blank frames).
-Both physical scanlines of each logical row use the same graphics-write schedule
-and the same color.
-The playfield is in normal, unreflected mode, with independent writes for its
-left and right halves.
+The gameplay kernel uses these instruction-completion cycles after WSYNC:
 
-| Cycle | Register | Value |
-| ---: | --- | --- |
-| 3 | PF0 | Zero for left edge |
-| 11 | PF1 | Left beam/ring stream |
-| 19 | GRP1 | Selected enemy row |
-| 27 | PF2 | Left beam/ring stream |
-| 34 | GRP0 | Turret row |
-| 42 | PF0 | Right beam/ring stream |
-| 50 | PF1 | Right beam/ring stream |
-| 53 | PF2 | Zero for right edge |
+| Register | First physical line | Second physical line |
+| --- | ---: | ---: |
+| HMOVE | 3 | No strobe |
+| PF0 left | 6 | 3 |
+| PF1 left | 14 | 11 |
+| GRP1 | 22 | Retained |
+| PF2 left | 30 | 19 |
+| GRP0 | 37 | Retained |
+| PF0 right | 45 | 29 |
+| PF1 right | 53 | 40 |
+| PF2 right | 56 | 50–53, according to reuse path |
 
-The first line then reaches WSYNC at cycle 56. The second line decrements Y,
-branches, and reaches WSYNC by cycle 61 (62 if the branch crosses a page).
-The last row enters overscan instead. X stays zero, allowing three-cycle STX
-instructions for constant-zero PF writes. Reverse row indexing removes the
-separate row-limit comparison. Playfield,
-turret, and sprite data are stored in reverse row order to preserve their screen
-positions. Indexed streams never cross a page during the kernel.
+Only the first line writes player graphics; TIA holds those values on the second.
+The freed cycles switch the second sprite's pointer/color and update its horizontal
+motion during blank rows. The first line prefetches the motion byte; the second
+line applies it and looks up the remaining displacement. The tightest paths reach
+WSYNC at cycle 75. Two page-aligned 256-byte tables avoid variable indexed-load
+costs. Right-half PF writes stay late enough to preserve the left half's pixels.
+The row-zero exit is separate so loop control cannot spill into an extra scanline.
+
+The diagnostic kernel retains its original per-line schedule: PF0/1 at 3/11,
+GRP1 at 19, PF2 at 27, GRP0 at 34, then right PF0/1/2 at 42/50/53. It does not
+reuse sprites within a frame. Both ROMs retain the 160-line arena.
 
 COLUPF is set during the separator and remains fixed throughout the entire arena.
 The whole beam changes color together between frames, with no scanline gradient
@@ -101,8 +102,8 @@ If the arena geometry expands into those outer columns, the
 generator fails; changing the timed kernel is required.
 
 Enemy GRP1 is ready before the leftmost legal sprite pixel. The turret stays at
-horizontal left edge 76 and logical top row 38. Sprite positioning runs entirely
-in blanking, followed by HMOVE. `PositionPlayer` deliberately aligns its subtract/
+horizontal left edge 76 and logical top row 38. Initial sprite positioning runs in blanking, followed by HMOVE. The playable
+kernel then repositions P1 between a pair of separated sprite windows. `PositionPlayer` deliberately aligns its subtract/
 branch loop within one page and uses a five-cycle absolute indexed HMP store.
 Changing either changes horizontal placement; Stella inspection confirmed both
 players at the intended positions after correcting these details.
@@ -119,18 +120,20 @@ the moves for both physical scanlines into its high and low nibbles.
 | --- | ---: | ---: |
 | HMOVE | 3 | 3 |
 | ENABL | 14, 19, or 20 according to row bounds | Held from first line |
-| GRP1 | 22, 27, or 28 | 11 |
-| GRP0 | 29, 34, or 35 | 18 |
-| HMBL | 37, 42, or 43 | 34 |
+| GRP1 | 22, 27, or 28 | Retained |
+| GRP0 | 29, 34, or 35 | Retained |
+| HMBL | 37, 42, or 43 | 27 |
 
-The second line reaches WSYNC by cycle 43, including the loop branch's page
-crossing. The final line disables ENABL before entering overscan. The playfield
+The second line also performs sprite reuse work within its 76-cycle budget. The final line disables ENABL before entering overscan. The playfield
 stays blank throughout this kernel. HMCLR in the separator stops player motion
 before the repeated HMOVE strobes. Ball-motion writes occur more than 24 cycles
 after HMOVE, following the timing requirement in Atari's
 [Stella Programmer's Guide](https://www.atariage.com/2600/programming/2600_101/docs/stella.html).
 Early HMOVE also blanks the leftmost eight color clocks; these lie in the empty
-black arena margin. Both sprites still update every physical line.
+black arena margin. Gameplay writes each sprite row once and holds it for the second physical line.
+HMP1 clears on the first line after HMOVE so P1 moves only once per logical row;
+the second line prepares its next step. The diagnostic kernel still writes both
+sprite rows on each line and writes its second HMBL at cycle 34.
 
 ## Effect scheduling
 
@@ -171,7 +174,7 @@ update only; combat uses it and `LastDirection`, never the cosmetic fade.
 The five-update shot sound has its own timer in a former audio reserve byte.
 
 `BombEvent` also pulses once for immediate damage, independent of ring display
-phases. Bomb sound lasts six updates, its ring 16, and its cooldown 60. A bomb
+phases. Bomb sound lasts six updates, its ring 16, and its cooldown 30. A bomb
 damages squares and diamonds, while triangles show vivid yellow/orange immunity feedback.
 The beam damages triangles and diamonds; squares show the same immunity feedback. A combined
 hit on a diamond can deal two damage but awards score only once on death.
@@ -179,19 +182,19 @@ Bomb damage and square fill both compare the full 8.8 radius: `24.00` is inside,
 `24.01` is outside.
 
 The ring uses the playfield kernel and player graphics are written on both
-phases. Enemy draw ages do not depend on effect phase, so two enemies still
-appear every other frame. No extra flicker phase is added for enemies.
+phases. Fixed slot phases keep every live enemy/burst visible at least every other
+frame, including a third target. No extra flicker phase is added for enemies.
 
 Scored kills retain their last position for an 18-update sprite burst. The three
 stages last six updates each: white flash, gold sparks, and dim red embers. The
 active flag clears and score applies immediately. `EnemyVisual` holds the timer;
 the renderer schedules a nonzero timer alongside live enemies using the same
-draw-age rule. Thus two bomb kills each receive three appearances per stage.
+slot-phase rule. Thus two bomb kills each receive three appearances per stage.
 Timers advance in game over too; reset clears the entire slot pool.
 
 `ScanEnemies` counts live enemies separately from drawable objects, using the
 existing `Temp` scratch byte for the latter. Bursts reserve their old slots.
-A due spawn waits if the combined enemy/burst count is already two, keeping the
+A due spawn waits if the combined enemy/burst count reaches the level's cap, keeping the
 one-omitted-frame limit for survivors. No extra persistent RAM is allocated.
 
 Live enemies reuse `EnemyVisual` for feedback: bit 7 marks a six-update white
@@ -213,9 +216,10 @@ shape. Standard enemy shapes retain their original four rows inside that window.
 Display setup and HUD preparation now run in bank 0. After VSYNC, bank 1 starts
 the blanking timer and jumps through `PrepareEntry` ($FF92) to bank 0; it returns
 through `RenderEntry` ($FF98) at `PrepareDone`. Pointer/type tables live in bank 0,
-and the sprite atlas, raster streams, HUD text, and timed kernels live in bank 1.
-The bank stubs are byte-identical in both tails. Moving setup code/data makes
-room for the variants without adding instructions to either arena kernel.
+the sprite atlas, raster streams, motion tables, and arena kernels live in bank 1.
+HUD drawing/fonts now live in bank 0: `HudEntry` ($FF9E) switches there after
+blanking, and `ArenaEntry` ($FFA4) switches back during the first separator line.
+The seven bank stubs are byte-identical in both tails.
 
 Player contact starts a 12-update background flash. `PlayerHitTimer` uses one
 former audio reserve byte; it advances before combat and also during game over.
@@ -265,43 +269,62 @@ resolve damage/contact and receive score. Death wins over level completion.
 Advancement waits for both live targets and destruction bursts to finish, then
 shows the next level for 60 updates. Loading resets the arena and combat effects,
 retains HP/score/RNG/input history, and consumes that update without spawning or
-attacking. All eight rows retain the tested type speeds and a two-enemy cap.
+attacking. All rows retain the tested type speeds. Level 1 caps at two; later rows cap at
+three and use shorter intervals (60 updates in level 2, down to 42 in level 7).
 
 ## Space and update budgets
 
 | Resource | Current measurement |
 | --- | --- |
-| Bank 0 end / room before trampoline | `$FC3E` / 834 bytes |
-| Bank 1 end / room before trampoline | `$FDF2` / 398 bytes |
+| Bank 0 end / room before trampoline | `$FE72` / 270 bytes |
+| Bank 1 end / room before trampoline | `$FF00` / 128 bytes |
 | Cartridge | 8,192 bytes, identical bank tails and vectors |
 | RAM | Fixed 128-byte map, including reserves and stack |
 | Stack | Eight bytes observed; 16 reserved |
 | Guard | Eight bytes at `$E8–$EF`, intact in tested runs |
-| Update cost | 334–1,328 cycles from `GameFrame` to `LogicDone` |
-| Render preparation done | 1,468–1,696 cycles from VSYNC line start |
+| Update cost | 334–1,777 cycles from `GameFrame` to `LogicDone` |
+| Render preparation done | 1,468–1,848 cycles from VSYNC line start |
 
-The combat suite records 13,472 frame samples in `build/combat-timing.json`,
+The combat suite records 11,255 frame samples in `build/combat-timing.json`,
 including a survival run of at least 1,400 frames across all five types, movement/attack/contact boundaries, scoring,
 spawning, immunity/hit feedback, destruction bursts, HUD values, and restart.
 A second natural run completes the first four levels with all variants seen and
 no player damage. Fixtures check quotas, exact breaks, carry/saturation at levels
 09/10/99, per-row spawning, input history, and death/reset priority.
 Tests enforce the 2,000-cycle update and
-2,400-cycle preparation limits. The static diagnostic build has 1,497 bytes free
-in bank 0 and 456 in bank 1.
+2,400-cycle preparation limits. The static diagnostic build has 1,256 bytes free
+in bank 0 and 896 in bank 1.
 
 Four 64-byte magnitude tables live in bank 0. Cardinal/diagonal signs reconstruct
 all eight lanes there; cached sprite coordinates cross into the render bank.
-This preserves its remaining space for later HUD/display work. Sprite reuse
-still requires fresh RAM/timing budgets.
+The four former EnemyAge bytes now hold the lower sprite pointer, remaining X
+displacement, and color. `$E6` stores the reuse row. `FramePhase` bit 0 selects
+the effect phase, bits 1–3 encode the lower slot plus one, and bit 7 flags an
+invalid debugger pair. HUD scratch is generated only after render selection.
 
 ## Display limits and evidence
 
-The turret uses player 0. Player 1 draws one enemy per frame, selected by greatest
-draw age with a stable slot-index tie break. One target is visible every frame;
-two targets alternate without starvation. Four slots are reserved, but the
-prototype supports only two active targets. Cycling three or four targets through
-this same whole-frame slot would exceed the accepted omission limit.
+The turret uses player 0. Player 1 draws a vertically separated pair on one
+phase and the remaining enemy on the other. Phases belong to slots `(0,2)` and
+`(1,3)`, with an empty phase borrowing the populated phase. Four slots remain
+allocated, but the gameplay cap is three.
+
+The even pair uses upper/lower lanes; E/W remain available to the singleton.
+The spawner checks an entire remaining approach, using generated bounds for all
+25 type pairs and both fractional endpoints. One enemy must stay at radius 24
+or greater until the other could reach contact plus 18 burst updates. This also
+handles early kills, which freeze the sprite farther out and shorten its life.
+Unsafe arrangements defer eight updates. One bomb-only target remains the limit.
+
+At the tightest accepted diagonal separation, four logical rows are blank.
+That fits three seven-clock moves plus pointer-switch overhead, including the
+largest immunity-shake difference. Tests exhaust every legal lane/radius pair's
+space requirement, reconstruct actual sprite rows and HMOVE positions, exercise
+all beam/ring patterns on both paired phases, and check natural three-enemy
+visibility through repeated center arrivals. Additional fixtures exercise all
+125 three-target type combinations under simultaneous beam/bomb damage.
+`build/density-timing.json` records another 3,815 frames, including the busy
+three-target cases that reach the combined timing maxima above.
 
 `make stella-check` runs both ROMs. The diagnostic pass records both phases of same-height, center-convergence, and
 separated-height pairs. Its SELECT fixture injection temporarily drives only the
@@ -337,7 +360,17 @@ The level pass adds 19 snapshots covering the last kill/burst, the upcoming-leve
 HUD, the exact break boundary, held/fresh controls, levels 04/09/10/99, final-row
 reuse, fatal contacts, and reset to 01. Its states and captures are indexed by
 `build/stella/latest-levels.json`.
-Real hardware
-flicker and audio remain untested. Advancing
-to three enemies requires vertical sprite reuse and new timing/visibility
-measurements, as described in [the implementation specification](IMPLEMENTATION_SPEC.md).
+The added density pass (`tools/verify_density_stella.py`) captures natural level-2
+crowding, both paired phases, tight diagonal separation, beam/ring reuse,
+immunity, and bursts. Its 22 snapshots are indexed by `latest-density.json` when
+run successfully. X11 was unavailable in this session, so a delayed debugger
+script with SDL dummy video produced the same 22 screenshots instead. These
+were inspected for natural three-target visibility, both directions of P1 reuse,
+beam/ring continuity, immunity offsets, bursts, and HUD placement. The capture
+script, SDL input injector source, ROM, and images are retained under
+`build/stella/headless-density-20261028-203725`; the index is
+`build/stella/latest-headless-density.json`. This capture has no debugger
+state/timing transcript; timing and state assertions above come from py65.
+The normal X11 verification scripts remain available for a local full pass.
+Real hardware flicker and audio remain untested. Four-enemy rendering requires
+further measurements, as described in [the implementation specification](IMPLEMENTATION_SPEC.md).

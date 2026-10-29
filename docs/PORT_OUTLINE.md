@@ -1,6 +1,6 @@
 # Zero Swarm → Atari 2600: cuts for a playable version
 
-Reviewed 2026-10-26 against `../res`, commit `fb68a689d3fa6346696dd2310e5dd3d167c065a1`. The two-enemy combat prototype is now implemented; [kernel measurements](KERNEL_TIMING.md) record its timing and remaining limits.
+Reviewed 2026-10-26 against `../res`, commit `fb68a689d3fa6346696dd2310e5dd3d167c065a1`. The combat prototype now permits three enemies from level 2; [kernel measurements](KERNEL_TIMING.md) record its timing and remaining limits.
 
 The [implementation specification](IMPLEMENTATION_SPEC.md) defines the native code architecture, game rules, level data, resource budgets, and acceptance tests for this baseline.
 
@@ -170,7 +170,10 @@ and hit feedback, red player-damage flashes, attack/combat/game-over sounds,
 health, score, destruction bursts, and restart. Eight difficulty rows introduce
 the variants across the first four levels, then increase spawn frequency and
 diamond weight. Kill quotas, one-second level breaks, and an `LV 01..99` HUD are
-implemented, retaining health and score between levels. All rows keep the
-two-enemy cap and at most one bomb-only enemy active. Level balancing, hardware
-readability, and higher enemy counts still need validation. The earlier static display fixtures and held-beam
+implemented, retaining health and score between levels. Level 1 allows two enemies;
+level 2 onward allows three using vertical sprite reuse and approach-spacing
+checks. Bomb recharge is 30 updates (about half a second). At most one bomb-only
+enemy is active. CPU/register checks and 22 inspected headless Stella captures
+cover the new density kernel. Level balancing, hardware readability, and
+four-enemy layouts still need validation. The earlier static display fixtures and held-beam
 behavior remain available in a separate diagnostic ROM.

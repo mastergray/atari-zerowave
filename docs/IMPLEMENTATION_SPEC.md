@@ -9,9 +9,10 @@ joystick flick, all five enemy variants, health, score, damage/immunity feedback
 destruction bursts, attack/combat sound cues, start/game-over/restart, and level
 quotas/transitions. See [play instructions](../README.md) and [measured kernel
 timing](KERNEL_TIMING.md). Eight difficulty rows introduce variants gradually,
-then adjust spawn timing and mix. All rows keep the validated two-enemy cap and
-tested type speeds. Level balancing, higher display densities, and hardware
-readability remain to be validated. A separate display-test ROM retains the
+then adjust spawn timing and mix. Level 1 keeps two enemies; level 2 onward permits three with vertical sprite
+reuse and approach-spacing checks. Bomb recharge is half a second. CPU/register
+checks and 22 inspected headless Stella captures cover the new kernel. Level
+balancing, four-enemy layouts, and hardware readability remain to be validated. A separate display-test ROM retains the
 legacy held beam and static SELECT layouts.
 
 ## Platform and build decisions
@@ -88,7 +89,7 @@ Game geometry uses an eight-way lane and a radial distance, not free Cartesian m
 | `BOMB_RADIUS` | 24 | Fixed local damage radius |
 | `BEAM_RANGE` | 63 | Beam reaches the full approach lane |
 | `START_HP` | 5 | Health at the start of each run |
-| `BOMB_COOLDOWN` | 60 updates | Approximately one second at the target frame rate |
+| `BOMB_COOLDOWN` | 30 updates | Approximately half a second at the target frame rate |
 | `BOMB_ANIMATION_FRAMES` | 16 updates | Four expanding ring sizes, four updates each |
 | `BOMB_SOUND_FRAMES` | 6 updates | Short noise envelope independent of animation |
 | `BEAM_FADE_START` | 15 | Initial shot brightness; countdown through 1, then hide, independent of release |
@@ -106,7 +107,7 @@ magenta triangles, and 20/256 for armored squares. Diamonds use 32/256 at radius
 40 or greater, 48/256 from 24 up to 40, and 64/256 below 24. Select the band from
 distance before movement; the magenta triangle remains fastest everywhere.
 The armor speed leaves about 204 updates from bomb range to contact, compared
-with a 60-update recharge. Tests include a 30-update first-hit reaction delay
+with a 30-update recharge. Tests include a 30-update first-hit reaction delay
 and the full recharge before the second bomb. Speeds and bands remain tuning
 choices; all types retain the same eight straight lanes. `MovementEnabled=0`
 freezes motion for debugger fixtures without changing their type or health.
@@ -245,13 +246,13 @@ for that first picture.
 1. Sample and normalize input; handle RESET or non-play mode transitions.
 2. Decrement nonzero cooldown, bomb-animation, spawn, square-spacing timers. A timer set later in this update is not decremented again.
 3. Move enemies that were active at the start of the update.
-4. Accept a rearmed joystick direction as one beam event and latch its shot direction. Accept a fresh bomb press if ready; set cooldown to 60 and bomb-animation timer to 16. Emit each attack event for damage and sound once; clear events at the start of the next update.
+4. Accept a rearmed joystick direction as one beam event and latch its shot direction. Accept a fresh bomb press if ready; set cooldown to 30 and bomb-animation timer to 16. Emit each attack event for damage and sound once; clear events at the start of the next update.
 5. Resolve bomb damage, eligible beam damage, and surviving center contacts in that order. Award kills only when enemy health reaches zero.
 6. Resolve death, quota completion, and level-break entry.
 7. If still playing with quota remaining, attempt at most one spawn when due.
 8. Update beam visual state, select sound events, and save input history. In `PLAY`, start the fade on a new shot; otherwise advance it regardless of joystick state. Clear it on reset or leaving play. Prepare display data before the next visible arena.
 
-New spawns cannot move or be attacked until the following update; spawning therefore cannot grant a same-update kill. Their first drawing opportunity follows the enemy omission limit below. Timer semantics mean a bomb accepted at update `t` can next be accepted at `t+60`, with a new press edge; `t+59` is too early.
+New spawns cannot move or be attacked until the following update; spawning therefore cannot grant a same-update kill. Their first drawing opportunity follows the enemy omission limit below. Timer semantics mean a bomb accepted at update `t` can next be accepted at `t+30`, with a new press edge; `t+29` is too early.
 
 Use a stable NTSC frame: three VSYNC lines, 37 VBLANK lines, 192 visible lines, and 30 overscan lines. Each scanline has 76 CPU cycles. The frame is software-timed, as described in the [Atari timing reference](https://alienbill.com/2600/101/docs/stella.html).
 
@@ -266,7 +267,7 @@ These are allocation targets to measure in the first implementation. Bank change
 
 ## Enemy storage and spawning
 
-Use `MAX_ENEMIES=4` as compiled storage capacity and initially `VALIDATED_ENEMY_CAP=2` as the gameplay ceiling under test. Runtime `active_cap` is the smaller of the level request and validated cap. Every enemy loop uses slot indices and an active flag; there must be no separate hard-coded enemy-one/enemy-two logic.
+Use `MAX_ENEMIES=4` as compiled storage capacity and `VALIDATED_ENEMY_CAP=3` as the gameplay ceiling under test. Runtime `active_cap` is the smaller of the level request and validated cap. Every enemy loop uses slot indices and an active flag; there must be no separate hard-coded enemy-one/enemy-two logic.
 
 The current prototype stores eight fields per slot as eight arrays of four bytes:
 
@@ -278,13 +279,13 @@ The current prototype stores eight fields per slot as eight arrays of four bytes
 | `screen_x` | Cached left edge in color clocks |
 | `screen_y` | Cached top logical row |
 | `health` | Remaining enemy health; reuses the former unused `EnemyPhase` array |
-| `draw_age` | Consecutive visible frames omitted, for scheduler checks |
+| Former `draw_age` array | Gameplay: four shared bytes for second sprite pointer, remaining X displacement, and color. Diagnostics retain draw ages. |
 | `visual_state` | Live: bit 7 successful-hit feedback, bits 0–6 remaining feedback updates; inactive: destruction-burst updates |
 
 Vulnerability, score, sprite, starting health, speed, and contact damage come
 from generated type tables. Diamond speed also depends on distance. There is no
 per-enemy speed byte or beam-hit timer. Square fill is derived from exact radius;
-the damaged armor shape is derived from health. All eight arrays still occupy
+the damaged armor shape is derived from health. The seven enemy arrays plus four renderer bytes occupy
 32 bytes, leaving the existing guard and stack reservations intact.
 
 Attempt a spawn only if there is a free slot, active count is below cap, quota remains, and the spawn timer is zero. Choose a lane and type using a one-byte deterministic LFSR: shift right, XOR with `$B8` when the old low bit was one; seed `$A5` on reset. A host check verifies its nonzero cycle. Determinism enables replayable tests.
@@ -307,7 +308,7 @@ this rule or relying on the old equal-speed assumptions.
 
 With bomb radius 24, contact radius 8, and speed `56/256`, the old square has
 about 73 updates between those boundaries, leaving only about 13 updates beyond
-the 60-update bomb cooldown. Do not reuse that late-level speed for two-hit armor
+the former 60-update bomb cooldown. Do not reuse that late-level speed for two-hit armor
 without verifying a useful first-hit reaction window and a second ready bomb.
 Test combinations of normal/armored squares and diamonds against the cooldown;
 diamonds also offer the beam as an alternative. Exact spacing and weights need
@@ -325,20 +326,19 @@ these opening progression settings:
 | Level | Cap | Kill quota | Spawn interval (updates) | Weights: triangle / fast / diamond / square / armor |
 | --- | ---: | ---: | ---: | --- |
 | 1 | 2 | 8 | 90 | 6 / 0 / 0 / 2 / 0 |
-| 2 | 2 | 10 | 90 | 5 / 2 / 0 / 1 / 0 |
-| 3 | 2 | 10 | 90 | 4 / 2 / 0 / 1 / 1 |
-| 4 | 2 | 12 | 90 | 3 / 2 / 1 / 1 / 1 |
-| 5 | 2 | 12 | 75 | 3 / 2 / 1 / 1 / 1 |
-| 6 | 2 | 14 | 75 | 2 / 2 / 2 / 1 / 1 |
-| 7 | 2 | 16 | 60 | 2 / 2 / 2 / 1 / 1 |
-| 8 onward | 2 | 18 | 54 | 2 / 2 / 2 / 1 / 1 |
+| 2 | 3 | 10 | 60 | 5 / 2 / 0 / 1 / 0 |
+| 3 | 3 | 10 | 60 | 4 / 2 / 0 / 1 / 1 |
+| 4 | 3 | 12 | 54 | 3 / 2 / 1 / 1 / 1 |
+| 5 | 3 | 12 | 48 | 3 / 2 / 1 / 1 / 1 |
+| 6 | 3 | 14 | 45 | 2 / 2 / 2 / 1 / 1 |
+| 7 | 3 | 16 | 42 | 2 / 2 / 2 / 1 / 1 |
+| 8 onward | 3 | 18 | 42 | 2 / 2 / 2 / 1 / 1 |
 
 All weights are out of eight, before bomb-only spacing/cap restrictions. Enemy
 speeds remain unchanged across these rows. Armor therefore retains about 205
-updates between bomb range and contact, against a 60-update bomb cooldown.
-Promote higher caps into later rows only after validating their rendering and
-arrival fairness. The loader clamps requested caps to `VALIDATED_ENEMY_CAP`;
-this two-enemy build completes baseline progression, not the later density goal.
+updates between bomb range and contact, against a 30-update bomb cooldown.
+The loader clamps requested caps to `VALIDATED_ENEMY_CAP=3`. Four enemies need
+further rendering and arrival-fairness validation.
 
 Store the displayed level as packed BCD `01..99`; increment with decimal mode
 only for that operation, then clear it. After level 8, reuse the final row.
@@ -380,15 +380,37 @@ For the first kernel, position one enemy or burst graphic during blanking and dr
 
 At two enemies this targets one omitted frame between appearances, approximately 30 appearances per second per enemy. It must pass television readability testing; if it is too faint, improve reuse at separated heights before calling the baseline complete. Use software combat state even on omitted frames. Never let alternate-frame drawing cause alternate-frame damage.
 
-### Display expansion for later levels
+### Three-enemy display
 
-Before increasing the validated cap, add vertical reuse of player graphics. Build a small draw schedule during blanking, sorted by screen height. Player 1 can serve multiple enemies in nonoverlapping vertical regions with a measured repositioning gap. Player 0 may also serve enemies outside the turret's protected vertical band once its state is safely restored for the turret.
+Gameplay uses fixed slot phases `(0,2)` and `(1,3)`. If one phase is empty,
+draw the populated phase every frame. Sort a pair by Y, then switch Player 1's
+sprite pointer and color after the upper sprite's eight-row window. During the
+blank gap, move P1 by up to seven color clocks per logical row using HMOVE.
+Player graphics are written once per logical row and retained on its second
+scanline. Player 0 remains the turret. Both playfield and thin-beam kernels
+retain their attack graphics while reusing P1. See [the cycle schedules](KERNEL_TIMING.md).
 
-Represent candidate draws as vertical intervals expanded by the measured setup gap. Assign them to available hardware-player/time slots and, if necessary, two alternating frame phases. The turret always owns player 0 in its band. Maintain a maximum of one consecutive omitted frame for each active enemy. Merely alternating three or four enemies through one whole-frame slot does not meet this requirement.
+The spawner checks safety before admitting a paired enemy. Even slots exclude
+E/W; their pair must occupy opposite vertical halves. Odd singletons can use
+any of the eight lanes. Generated type-pair bounds use exact fixed-point
+movement, including diamond acceleration, to require one enemy to remain at
+radius 24 or greater until the other reaches contact plus its full 18-update
+burst allowance. Bounds use both fractional endpoints. Rejected arrangements
+retry after eight updates. Killing early can only shorten existence or freeze
+a sprite farther from the center, preserving the guarantee.
 
-If a candidate population cannot be scheduled, the renderer reports overload in debug builds. The spawn filter may restrict demonstrated troublesome arrangements, but testing must also cover their later movement and convergence. Reject a higher cap if any reachable state starves an enemy, breaks timing, or needs excessive flicker. Do not silently pause, teleport, or remove enemies to solve rendering conflicts. Same-height east/west enemies and diagonals closing on the center are mandatory stress cases.
+For every permitted lane/radius combination, the blank gap must fit all horizontal
+movement, including opposing immunity offsets. The worst accepted near pair has
+four blank logical rows. The tests reconstruct retained graphics, colors, and
+HMOVE displacement, and require each live enemy/burst to appear at least every
+other frame. Invalid debugger pairs set `FramePhase` bit 7 and safely omit the
+second sprite; natural spawning must never reach that fallback. Bits 1–3 encode
+the lower draw's slot plus one (zero for none); bit 0 remains the effect phase.
 
-The exact reuse gaps and accepted lane combinations are outputs of kernel testing. Preserve them as scheduler constants/fixtures so the spawn rules and renderer agree.
+A third enemy can be admitted from level 2. Four remains an unvalidated option.
+The new kernel passed CPU/register validation and inspection of 22 headless
+Stella captures. Live flicker/readability still needs playtesting; screenshots
+cannot certify it. The normal X11 debugger-state pass remains available locally.
 
 ## HUD and sound
 
@@ -429,17 +451,17 @@ work must revise allocations or lifetimes before adding persistent state.
 
 | Address range | Bytes | Allocation |
 | --- | ---: | --- |
-| `$80–$9F` | 32 | Four enemy slots, eight arrays of four bytes |
+| `$80–$9F` | 32 | Four enemy slots in seven arrays; four shared secondary-draw bytes |
 | `$A0–$AF` | 16 | BCD level number (diagnostic layout ID), frame counter, bomb count, mode, HP, two score bytes, spawn/break timer, square timer, RNG, active count, cap, movement enable, spawn interval, beam palette index, beam rearm latch |
 | `$B0–$B7` | 8 | Direction, last direction, previous button/reset bits, beam enable, bomb cooldown, bomb-animation timer, bomb event, frame phase |
 | `$B8–$BF` | 8 | Two HUD health masks, beam-shot timer, player-hit timer, event sound ID/timer/request, remaining kill quota |
 | `$C0–$D7` | 24 | Renderer pointers, row bytes, draw/HUD state, and level type-table offset |
-| `$D8–$E7` | 16 | Ten HUD score row bytes, four status-pointer bytes, draw-age temporary, general temporary; logic scratch aliases the HUD storage during overscan |
+| `$D8–$E7` | 16 | Ten HUD score row bytes, four status-pointer bytes, reuse split row, general temporary; logic scratch aliases the HUD storage during overscan |
 | `$E8–$EF` | 8 | Unallocated margin; guard pattern in debug builds |
 | `$F0–$FF` | 16 | Stack reservation |
 | Total | 128 | Includes stack and margin |
 
-The 24 renderer bytes currently hold four two-byte playfield pointers, a two-byte sprite pointer, selected slot, HUD color, arena color, display-pattern ID, four beam visual bytes (fade timer, frozen hue, draw direction, draw color), a two-byte ball-motion pointer, two ball row bounds, a kernel selector, and the level type-table offset. Later sprite reuse must fit or explicitly revise this allocation. Scratch can be reused only across nonoverlapping lifetimes; record clobbered registers and scratch in each routine's header. ROM switching does not preserve a second copy of RAM.
+The 24 renderer bytes currently hold four two-byte playfield pointers, a two-byte sprite pointer, selected slot, HUD color, arena color, display-pattern ID, four beam visual bytes (fade timer, frozen hue, draw direction, draw color), a two-byte ball-motion pointer, two ball row bounds, a kernel selector, and the level type-table offset. The four former age bytes at `$98–$9B` hold the second draw descriptor; `$E6` holds the split row. Render selection finishes before HUD preparation overwrites its scratch. Scratch can be reused only across nonoverlapping lifetimes; record clobbered registers and scratch in each routine's header. ROM switching does not preserve a second copy of RAM.
 
 During play/break, the two HUD status pointers select ROM glyphs for the level's
 tens and ones digits. The status scanline combines them through `Temp`, after
@@ -456,8 +478,8 @@ F8 selects its lower and upper 4 KiB banks through cartridge hotspots `$1FF8` an
 
 | Bank | Contents |
 | --- | --- |
-| 0 | Reset/init, input, modes, movement and type data, combat, spawning, scoring, audio, display/HUD preparation and pointer tables |
-| 1 | Frame synchronization, timed kernels, beam streams, sprite atlas, visible HUD text |
+| 0 | Reset/init, gameplay, audio, display/HUD preparation, pointer/type tables, HUD kernel and fonts |
+| 1 | Frame synchronization, arena kernels, beam/ring streams, sprite atlas, reuse-motion tables |
 
 Place matching bank-switch trampolines at `$FF80–$FFF7` in both banks, reserve `$FFF8–$FFF9` as hotspots, and put matching vectors at `$FFFA–$FFFF`. Both reset vectors enter a common stub that explicitly selects bank 0, so startup does not depend on the initial bank.
 
@@ -466,9 +488,9 @@ identical at the same address in both banks. Do not use a normal cross-bank
 `JSR`/`RTS` convention. Bank 1 starts synchronization and its blanking timer, then
 jumps through `PrepareEntry` at `$FF92` to bank 0. Bank 0 prepares the HUD,
 pointers, colors, and object positions, then jumps through `RenderEntry` at
-`$FF98` back to bank 1 at `PrepareDone`. The visible kernel remains in bank 1;
-overscan switches back to bank 0. This makes room for ten sprite shapes without
-adding instructions to either arena kernel. Pointer tables live with the code
+`$FF98` back to bank 1 at `PrepareDone`. HUD drawing enters bank 0 through `HudEntry` at `$FF9E`; the first separator
+line returns through `ArenaEntry` at `$FFA4` to bank 1. Overscan switches back
+to bank 0. Moving the HUD frees space for the reuse kernel and motion tables. Pointer tables live with the code
 that reads them and point into the bank containing the visible graphic data.
 
 ### Planned project files
@@ -513,7 +535,7 @@ Host tests verify the integer model and generated data; they do not prove the as
 | --- | --- |
 | Input | Each of eight center-to-direction flicks fires once. Holds and direct direction changes do not repeat. Actual center rearms; conflicting inputs do not. Startup/reset/transition holds cannot produce an accidental shot. Validate deliberate diagonal flicks on a real stick. |
 | Shot fade | A shot starts bright and fades through the 15-update countdown while held or released. Its direction/hue stay fixed; a new rearmed shot replaces the fade. Reset clears it. Bomb animation and enemy scheduling continue. |
-| Button edges | Held fire causes one bomb; cooldown presses do not queue; activation at `t+59` fails and a fresh press at `t+60` succeeds. Start/reset/transition inputs do not create accidental bombs. |
+| Button edges | Held fire causes one bomb; cooldown presses do not queue; activation at `t+29` fails and a fresh press at `t+30` succeeds. Start/reset/transition inputs do not create accidental bombs. |
 | Weapon/type matrix | Both triangle types take beam damage only; both square types take bomb damage only; diamonds accept either. Immune hits never reduce health or award score. |
 | Beam | Matching-lane triangles die on the shot event; wrong lanes survive; squares do not block the ray. Diamonds lose one health per shot, including ring frames; holding or entering the cosmetic fade cannot cause extra damage. Beam pattern crosses every variant's legal positions. |
 | Bomb boundary | With zero movement, an eligible target at `24.00` takes one damage and at `24.01` takes none; square fill agrees. Triangles survive at either radius. Armor survives one bomb and dies to a second; the ring cannot hit again. |

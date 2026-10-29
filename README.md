@@ -7,8 +7,8 @@ The cartridge targets NTSC, uses ordinary 8 KiB F8 banking, and needs no extra R
 The current build has one beam shot per joystick flick, five enemy variants,
 five player health points, a four-digit score, and levels that introduce variants
 gradually. It keeps the thin beam, expanding bomb ring, destruction bursts, and
-combat sounds. The display supports two enemies at a time; higher enemy counts
-are the next rendering milestone.
+combat sounds. Level 1 allows two enemies; level 2 onward allows three, with faster spawning
+and a half-second bomb recharge.
 
 ## Build and run
 
@@ -60,13 +60,13 @@ shrinks to an ordinary square after its first bomb hit. The diamond needs three
 hits, using separate beam flicks, bombs, or both. Health, speed, and spawn weights
 are provisional playtest values in `config/tuning.json`.
 
-Enemies approach along eight lanes, with at most two active and no duplicate
+Enemies approach along eight lanes, with up to three active from level 2 and no duplicate
 lanes. The first spawn arrives about 1.5 seconds after starting. At most one
 bomb-only enemy is active at a time, leaving room to recharge for armored
 squares. The diamond uses speeds 32, 48, then 64/256 as it gets closer; the
 magenta triangle stays fastest at 80/256. Score saturates at 9999.
 
-The `BOMB` label is green when ready and amber during the 60-update cooldown.
+The `BOMB` label is green when ready and amber during the 30-update cooldown (about half a second).
 Holding the button produces one bomb; pressing during cooldown does not queue
 another. The gold bomb outline expands through four sizes over 16 updates
 (about a quarter-second), ending at the bomb's range. During that animation,
@@ -125,19 +125,23 @@ over. Bombs recharge for the new level; held controls must still be released
 before attacking again. Death takes priority over advancement. RESET always
 starts level 1 with five health and zero score.
 
-| Level | Enemy mix / change | Kills | Spawn interval |
-| --- | --- | ---: | ---: |
-| 1 | Standard triangles and squares | 8 | 1.5 s |
-| 2 | Adds fast magenta triangles | 10 | 1.5 s |
-| 3 | Adds armored squares | 10 | 1.5 s |
-| 4 | Adds blue diamonds | 12 | 1.5 s |
-| 5 | Same mix, shorter spawn interval | 12 | 1.25 s |
-| 6 | Greater diamond weight | 14 | 1.25 s |
-| 7 | Shorter spawn interval | 16 | 1 s |
-| 8 onward | Final difficulty row | 18 | 0.9 s |
+| Level | Enemy mix / change | Cap | Kills | Spawn interval |
+| --- | --- | ---: | ---: | ---: |
+| 1 | Standard triangles and squares | 2 | 8 | 1.5 s |
+| 2 | Adds fast magenta triangles | 3 | 10 | 1 s |
+| 3 | Adds armored squares | 3 | 10 | 1 s |
+| 4 | Adds blue diamonds | 3 | 12 | 0.9 s |
+| 5 | Same mix, shorter spawn interval | 3 | 12 | 0.8 s |
+| 6 | Greater diamond weight | 3 | 14 | 0.75 s |
+| 7 | Shorter spawn interval | 3 | 16 | 0.7 s |
+| 8 onward | Final difficulty row | 3 | 18 | 0.7 s |
 
-Intervals are the minimum delay between successful spawns; the two-object display
-cap, destruction bursts, and bomb-only spacing can defer them. Enemy speeds stay
+Intervals are the minimum delay between successful spawns. The level cap,
+destruction bursts, bomb-only spacing, and safe sprite separation can defer them.
+Two vertically separated enemies share one draw phase; the third uses the other.
+The spawner checks their approach times so the pair remains separated as it
+converges on the turret. Every enemy is drawn at least every other frame.
+Enemy speeds stay
 at the tested type settings, including diamond acceleration. Only one bomb-only
 enemy may be active at once, preserving the armored square's two-bomb window.
 Level 9 onward reuses level 8's settings; the displayed number stops at 99 and
@@ -189,7 +193,7 @@ appearances further.
 
 ## Validation and development
 
-`make check` runs 69 tests covering generated geometry, all joystick combinations,
+`make check` runs 75 tests covering generated geometry, all joystick combinations,
 button edges and exact cooldown boundaries, both startup banks, stack/guard
 integrity, fixed frame lengths, kernel write deadlines, and display fairness.
 Audio tests check exact TIA envelopes and expiry, simultaneous-event priority,
@@ -234,14 +238,19 @@ indexed by
 `build/stella/latest-levels.json` for 19 additional captures of quota/break
 boundaries, the level HUD, held controls, level 99, and reset. See
 [kernel timing notes](docs/KERNEL_TIMING.md) for the measured budgets and limits.
-Television flicker, real joystick diagonals, and sound still need a hardware pass.
+The new density script adds 22 captures via `build/stella/latest-density.json`.
+The new kernel passed CPU/register checks and inspection of 22 headless Stella
+captures, indexed by `build/stella/latest-headless-density.json`. These captures
+use SDL dummy video; they contain images rather than a debugger state/timing log.
+Run `make stella-check` in a graphical session for the full scripted debugger pass. Television flicker, real joystick diagonals, and sound still
+need a hardware pass.
 
 Assembly lives in `src/`; `config/` contains tuning and static fixtures;
 `tools/generate_assets.py` produces the shared graphics tables. The independent
 Godot reference checkout in `res/` is ignored by this repository.
 
-Next is playtesting the level curve, then sprite reuse work to establish a readable
-schedule for three enemies and eventually four. The current cap remains two.
+Next is playtesting the faster recharge and three-enemy level curve. Four
+simultaneous enemies remain a future rendering and difficulty experiment.
 
 ## Local repository
 

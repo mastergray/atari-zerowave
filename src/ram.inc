@@ -9,6 +9,10 @@ EnemyY          ds 4
 EnemyPhase      ds 4
 EnemyHealth = EnemyPhase  ; legacy diagnostic phase is unused in gameplay
 EnemyAge        ds 4
+; Diagnostic draw ages; gameplay reuses these four bytes for the second draw.
+NextSprite = EnemyAge
+NextDelta = EnemyAge+2
+NextColor = EnemyAge+3
 EnemyVisual     ds 4
 ; Inactive: destruction lifetime. Active: bit 7 successful hit, low 7 feedback
 ; lifetime (yellow/orange immunity shake when bit 7 is clear). Zero is normal.
@@ -73,6 +77,7 @@ HudScoreRight   ds 5
 HudStatus1      ds 2
 HudStatus2      ds 2
 BestAge         ds 1
+ReuseRow = BestAge
 Temp            ds 1
 CurrentButtons = HudScoreLeft
 PressedButtons = HudScoreLeft+1
@@ -85,6 +90,9 @@ DrawableCount  = Temp
 BombTargetCount = HudScoreRight+2
 MoveStep       = HudScoreRight+3
 CombatType     = HudScoreRight+3
+SpawnType = CombatType
+FirstDrawX = HudScoreRight
+SecondSlot = HudScoreRight+1
 GuardStart      ds 8
 StackBottom     ds 16
 RamEnd = *

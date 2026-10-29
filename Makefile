@@ -45,6 +45,7 @@ stella-check: all
 	$(PYTHON) tools/verify_stella.py
 	$(PYTHON) tools/verify_combat_stella.py
 	$(PYTHON) tools/verify_levels_stella.py
+	$(PYTHON) tools/verify_density_stella.py
 
 clean:
 	$(PYTHON) -c 'import pathlib, shutil; p=pathlib.Path("build"); shutil.rmtree(p) if p.is_dir() else None'

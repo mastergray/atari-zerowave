@@ -59,6 +59,7 @@ LogicDone:
     sta WSYNC
     jmp DisplayEntry
 
+    IF DISPLAY_TEST
 ; Frame update is bounded: no spawning/search or combat in this display build.
 ; A/X/Y and scratch clobbered; input history saved on every path.
 UpdatePrototype:
@@ -116,6 +117,8 @@ UpdatePrototype:
     sta PreviousButtons
     jsr UpdateBeamVisual
     jmp UpdateAudio
+
+    ENDIF
 
 ; Visual state only. Gameplay starts a fade on each shot; diagnostics retain
 ; the held/release experiment. A/X clobbered, no scratch, under 100 cycles.
@@ -179,6 +182,7 @@ UpdateBeamVisual:
     sta BeamDrawDirection
     rts
 
+    IF DISPLAY_TEST
 ; Select a deterministic static layout. Clobbers A/X/Y, no scratch.
 ; Clears all four slots; only the first two are populated in this prototype.
 LoadFixture:
@@ -207,3 +211,4 @@ LoadFixture:
     lda FixtureY1,y
     sta EnemyY+1
     rts
+    ENDIF

@@ -95,7 +95,7 @@ def main():
     out = run.parent
     assert values("*Direction") == list(range(8)), values("*Direction")
     assert values("*BombCount") == [1, 1, 2, 3, 4], values("*BombCount")
-    assert values("*BombCooldown") == [60, 0], values("*BombCooldown")
+    assert values("*BombCooldown") == [30, 0], values("*BombCooldown")
     assert values("*LayoutId") == [8, 9, 10], values("*LayoutId")
     slots = values("*SelectedSlot")
     assert len(slots) == 6 and all(set(slots[i:i + 2]) == {0, 1} for i in (0, 2, 4)), slots

@@ -5,11 +5,10 @@ PrepareFrame:
 
 ; Prepare playfield, ball-motion and enemy pointers; A/X/Y clobbered.
 ; Display alternation never changes BeamEnabled or the one-update BombEvent.
-; Age selection is independent of slot parity, so a freed slot cannot starve another.
+; Gameplay uses two stable phases with vertical reuse; diagnostics use draw ages.
 PrepareRender:
     SUBROUTINE
     IF DISPLAY_TEST = 0
-    jsr PrepareHud
     ldy PlayerHitTimer
     lda PlayerHitColorByTimer,y
     sta COLUBK            ; one background color for the whole visible picture
@@ -68,6 +67,7 @@ PrepareRender:
     lda #COLOR_WAITING
 .ready:
     sta HudColor
+    IF DISPLAY_TEST
     lda #$ff
     sta SelectedSlot
     lda #0
@@ -170,7 +170,15 @@ PrepareRender:
     lda #>SpriteTriangle
     sta EnemySprite+1
     lda #76
+    ELSE
+    include "reuse_render.asm"
+    ENDIF
 .positionEnemy:
+    IF DISPLAY_TEST = 0
+    pha
+    jsr PrepareHud
+    pla
+    ENDIF
     ldx #1
     jsr PositionPlayer
     lda #76
@@ -204,3 +212,103 @@ PositionPlayer:
     sta.w HMP0,x          ; intentional 5-cycle absolute indexed store
     sta RESP0,x
     rts
+
+    IF DISPLAY_TEST = 0
+PrepareEnemyGraphic:
+    SUBROUTINE
+    ldy EnemyVisual,x
+    lda EnemyFlags,x
+    bmi .liveEnemy
+    lda BurstColorByTimer,y
+    sta NextColor
+    lda BurstSpriteByTimer,y
+    tay
+    jmp .graphic
+.liveEnemy:
+    and #TYPE_MASK
+    lsr
+    lsr
+    lsr
+    lsr
+    tay
+    lda TypeColor,y
+    sta NextColor
+    lda TypeSprite,y
+    tay
+    lda EnemyFlags,x
+    and #$40
+    beq .feedback
+    lda EnemyHealth,x
+    cmp #1
+    bne .range
+    ldy #2                ; one-health square, including damaged armor
+.range:
+    lda EnemyRadiusHi,x
+    cmp #BOMB_RADIUS
+    bcc .filled
+    bne .feedback
+    lda EnemyRadiusLo,x
+    bne .feedback
+.filled:
+    iny                   ; ready shape follows outlined shape in atlas
+.feedback:
+    lda EnemyVisual,x
+    beq .graphic
+    bmi .hit
+    sty Temp
+    tay
+    lda ImmuneColorByTimer,y
+    ldy Temp
+    jmp .color
+.hit:
+    lda #COLOR_HIT
+.color:
+    sta NextColor
+.graphic:
+    lda GraphicHi,y
+    sta NextSprite+1
+    lda EnemyY,x
+    clc
+    adc #6                ; eight-row window centered at old EnemyY+2
+    adc GraphicLo,y       ; labels are at offsets 0 or 88, no carry
+    sta NextSprite
+    lda EnemyX,x
+    ldy EnemyFlags,x
+    bpl .return
+    ldy EnemyVisual,x
+    beq .return
+    bmi .return
+    clc
+    adc ImmuneOffsetByTimer,y ; cosmetic shake; collision position never moves
+    jmp .return
+.return:
+    rts
+    ENDIF
+
+    IF DISPLAY_TEST = 0
+ChooseRenderPair:
+    SUBROUTINE
+    lda EnemyFlags,x
+    bmi .first
+    lda EnemyVisual,x
+    beq .second
+.first:
+    stx SelectedSlot
+.second:
+    inx
+    inx
+    lda EnemyFlags,x
+    bmi .drawable
+    lda EnemyVisual,x
+    beq .done
+.drawable:
+    lda SelectedSlot
+    cmp #$ff
+    bne .pair
+    stx SelectedSlot
+    rts
+.pair:
+    stx SecondSlot
+.done:
+    rts
+    ENDIF

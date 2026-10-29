@@ -1,4 +1,4 @@
-; Table-driven levels, with the validated two-enemy display ceiling.
+; Table-driven levels, with the three-enemy display ceiling.
 ; A/X/Y clobbered, logic scratch only; bounded slot loops.
 ; The complete update must stay below 2,000 cycles; measured paths are in tests.
 UpdateGame:

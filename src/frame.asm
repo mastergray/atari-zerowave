@@ -32,5 +32,5 @@ PrepareDone:
     ldy #1
     sta WSYNC             ; first visible line (HUD padding row 0)
     sta VBLANK
-    jmp HudLoop
+    jmp HudEntry
 

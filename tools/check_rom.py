@@ -38,6 +38,8 @@ def check(display=False):
             assert (address & 255) + 4 < 256, f"Page crossing: {name}"
         elif name in ("LevelDigitTens", "LevelDigitOnes"):
             assert (address & 255) + 49 < 256, f"Page crossing: {name}"
+        elif name in ("ReuseMotion", "ReuseRemainder"):
+            assert address & 255 == 0, f"Motion table must be page aligned: {name}"
         elif name == "LevelLabel":
             assert (address & 255) + 4 < 256, f"Page crossing: {name}"
         elif name.startswith("Sprite") or name in ("BurstFlash", "BurstSparks", "BurstEmbers"):
@@ -47,8 +49,8 @@ def check(display=False):
     report = {
         "rom_bytes": len(rom), "sha256": hashlib.sha256(rom).hexdigest(),
         "assembler_pin": "DASM 2.20.14.1", "enemy_slots": 4,
-        "prototype_display_cap": 2, "display_test": display,
-        "combat_difficulty": "static fixtures" if display else "table-driven levels; validated cap of two",
+        "prototype_display_cap": 2 if display else 3, "display_test": display,
+        "combat_difficulty": "static fixtures" if display else "table-driven levels; cap of three with bounded vertical sprite reuse",
         "levels": None if display else manifest["levels"],
         "bank_bytes_before_tail": [sym[f"Bank{bank}End"] - 0xf000 for bank in (0, 1)],
         "bank_headroom_before_tail": [0xff80 - sym[f"Bank{bank}End"] for bank in (0, 1)],
@@ -68,6 +70,7 @@ def check(display=False):
                        "updates": sum(segment[0] for segment in sound["segments"])}
                       for index, sound in enumerate(json.loads((ROOT / "config/audio.json").read_text())["sounds"], 1)]},
         "bomb_radii": manifest["bomb_radii"],
+        "bomb_cooldown_updates": manifest["tuning"]["bomb_cooldown"],
         "bomb_animation_frames": manifest["bomb_animation_frames"],
         "reference_commit": "fb68a689d3fa6346696dd2310e5dd3d167c065a1",
     }

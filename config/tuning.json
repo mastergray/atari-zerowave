@@ -7,7 +7,7 @@
   "spawn_radius": 63,
   "contact_radius": 8,
   "bomb_radius": 24,
-  "bomb_cooldown": 60,
+  "bomb_cooldown": 30,
   "bomb_stages": 4,
   "bomb_stage_frames": 4,
   "bomb_sound_frames": 6,
@@ -31,6 +31,7 @@
   ],
   "start_hp": 5,
   "square_spawn_gap": 72,
+  "pair_safe_radius": 24,
   "enemy_burst_stage_frames": 6,
   "enemy_burst_colors": [14, 46, 68],
   "colors": {

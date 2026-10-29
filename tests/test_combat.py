@@ -3,6 +3,7 @@ import json
 
 from rom_machine import Machine, ROOT
 import test_prototype as prototype
+from render_checks import assert_sprites
 
 assets = prototype.assets
 
@@ -12,7 +13,7 @@ MASKS = (1, 9, 8, 10, 2, 6, 4, 5)
 class CombatTests(unittest.TestCase):
     assert_rendered_pattern = prototype.CartridgeTests.assert_rendered_pattern
     assert_ball_pattern = prototype.CartridgeTests.assert_ball_pattern
-    assert_arena_colors_and_sprites = prototype.CartridgeTests.assert_arena_colors_and_sprites
+    assert_arena_colors_and_sprites = assert_sprites
 
     @classmethod
     def setUpClass(cls):
@@ -348,7 +349,7 @@ class CombatTests(unittest.TestCase):
         self.assertEqual(m.value("EnemyHealth"), 1)
         self.assertEqual(self.score(m), 0)
         self.assert_arena_colors_and_sprites(m)
-        for _ in range(59):
+        for _ in range(29):
             self.frame(m, fire=True)
             self.assertEqual(m.value("EnemyHealth"), 1)
         self.frame(m)
@@ -388,7 +389,7 @@ class CombatTests(unittest.TestCase):
         for _ in range(30):
             self.frame(m)
         self.frame(m, fire=True)
-        for _ in range(59):
+        for _ in range(29):
             self.frame(m)
         self.frame(m, fire=True)
         self.assertEqual(self.score(m), 50)
@@ -425,7 +426,7 @@ class CombatTests(unittest.TestCase):
                     for _ in range(2):
                         self.frame(m)
                         self.assert_arena_colors_and_sprites(m)
-                        self.assertLessEqual(m.value("EnemyAge", 1), 1)
+                        self.assertFalse(m.value("FramePhase") & 0x80)
 
     def test_immunity_feedback_lasts_three_stages_without_moving_combat_position(self):
         for phase in (0, 1):
@@ -632,7 +633,7 @@ class CombatTests(unittest.TestCase):
         for _ in range(20):
             self.frame(m)
             active = [m.value("EnemyFlags", s) for s in range(4) if m.value("EnemyFlags", s) & 0x80]
-            self.assertLessEqual(len(active), 2)
+            self.assertLessEqual(len(active), 3)
             self.assertEqual(len({v & 7 for v in active}), len(active))
         self.assertEqual(len(active), 2)
         squares = []
@@ -672,20 +673,20 @@ class CombatTests(unittest.TestCase):
     def test_combat_bomb_cooldown_is_exact_and_select_has_no_effect(self):
         m = self.game()
         self.frame(m, fire=True)
-        for _ in range(58):
+        for _ in range(28):
             self.frame(m, select=True)
-        self.frame(m, fire=True)  # t+59: too early
+        self.frame(m, fire=True)  # t+29: too early
         self.assertEqual(m.value("BombCount"), 1)
-        self.frame(m)  # t+60, no fresh press
+        self.frame(m)  # t+30, no fresh press
         self.frame(m, fire=True)
         self.assertEqual(m.value("BombCount"), 2)
         self.assertEqual(m.value("LevelNumber"), 1)
         self.assertEqual(m.value("ActiveCount"), 0)
         m = self.game()
         self.frame(m, fire=True)
-        for _ in range(59):
+        for _ in range(29):
             self.frame(m)
-        self.frame(m, fire=True)  # t+60: accepted
+        self.frame(m, fire=True)  # t+30: accepted
         self.assertEqual(m.value("BombCount"), 2)
 
     def test_playable_rom_preserves_rays_fade_and_sprite_timing(self):
@@ -768,7 +769,7 @@ class CombatTests(unittest.TestCase):
             self.frame(m, 8)
             self.assertEqual(m.value("ActiveCount"), 1)
             self.assertEqual(m.value("EnemyVisual"), 18 - elapsed)
-            self.assertLessEqual(m.value("EnemyAge", 1), 1)
+            self.assertFalse(m.value("FramePhase") & 0x80)
             self.assertEqual(m.value("EnemyFlags", 1), 0xc6)
             self.assertFalse(any(m.value("EnemyFlags", s) for s in (2, 3)))
             self.assert_arena_colors_and_sprites(m)
@@ -800,7 +801,7 @@ class CombatTests(unittest.TestCase):
         self.assertEqual([m.value("EnemyVisual", s) for s in range(4)], [0] * 4)
         self.assertEqual(m.value("SelectedSlot"), 255)
 
-    def test_scripted_survival_keeps_two_enemies_visible_and_timing_stable(self):
+    def test_scripted_survival_keeps_enemies_visible_and_timing_stable(self):
         m = self.game(False)
         m.poke("LevelNumber", 4)  # all types; progression is covered separately
         m.poke("GameMode", 3)
@@ -824,10 +825,10 @@ class CombatTests(unittest.TestCase):
                         mask = MASKS[flags & 7]
             self.frame(m, mask, fire=bomb)
             active = [s for s in range(4) if m.value("EnemyFlags", s) & 0x80]
-            self.assertLessEqual(len(active), 2)
+            self.assertLessEqual(len(active), 3)
             self.assertEqual(len({m.value("EnemyFlags", s) & 7 for s in active}), len(active))
             for slot in active:
-                self.assertLessEqual(m.value("EnemyAge", slot), 1)
+                self.assertFalse(m.value("FramePhase") & 0x80)
                 self.assertTrue(0 <= m.value("EnemyX", slot) <= 152)
                 self.assertTrue(0 <= m.value("EnemyY", slot) <= 76)
             self.assertLessEqual(sum(bool(m.value("EnemyFlags", s) & 0x40) for s in active), 1)
@@ -861,7 +862,7 @@ class CombatTests(unittest.TestCase):
             row = levels[min(number, len(levels)) - 1]
             self.assertEqual(m.value("LevelTypeOffset"), (min(number, len(levels)) - 1) * 8)
             self.assertEqual(m.value("KillsRemaining"), row["quota"])
-            self.assertEqual(m.value("ActiveCap"), min(row["cap"], 2))
+            self.assertEqual(m.value("ActiveCap"), min(row["cap"], 3))
             self.assertEqual(m.value("SpawnInterval"), row["spawn_interval"])
             self.assertEqual(m.value("SpawnTimer"), row["spawn_interval"])
             self.assertEqual((m.value("Health"), self.score(m), m.value("RandomState")), (3, 1234, 0x51))
@@ -924,7 +925,7 @@ class CombatTests(unittest.TestCase):
             self.assertEqual((m.value("GameMode"), m.value("SpawnTimer")), (3, left))
             self.assertEqual((m.value("ActiveCount"), m.value("BeamEvent")), (0, 0))
         self.frame(m, 8, fire=True)
-        self.assertEqual((m.value("GameMode"), m.value("KillsRemaining"), m.value("SpawnTimer")), (1, 10, 90))
+        self.assertEqual((m.value("GameMode"), m.value("KillsRemaining"), m.value("SpawnTimer")), (1, 10, 60))
         self.assertEqual((m.value("Health"), self.score(m), m.value("BombCooldown")), (5, 35, 0))
         self.assertEqual((m.value("BeamEvent"), m.value("BombEvent")), (0, 0))
         self.frame(m, 8, fire=True)

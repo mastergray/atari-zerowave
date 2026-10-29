@@ -50,7 +50,7 @@ def main():
     frame(58)
     capture("break-last-update", GameMode=3, SpawnTimer=1, ActiveCount=0, BeamEvent=0, BombEvent=0)
     frame()
-    capture("level-02-entry", GameMode=1, LevelNumber=2, KillsRemaining=10, SpawnTimer=90,
+    capture("level-02-entry", GameMode=1, LevelNumber=2, KillsRemaining=10, SpawnTimer=60,
             Health=3, ScoreLo=0x10, ActiveCount=0, BeamEvent=0, BombEvent=0, LevelTypeOffset=8)
     frame(2)
     capture("held-after-break", GameMode=1, BeamEvent=0, BombEvent=0)

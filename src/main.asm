@@ -19,12 +19,18 @@ DISPLAY_TEST = 0
     jmp PrepareFrame
     .byte $2c,$f9,$ff       ; RenderEntry: BIT $FFF9
     jmp PrepareDone
+    .byte $2c,$f8,$ff       ; HudEntry: BIT $FFF8
+    jmp HudLoop
+    .byte $2c,$f9,$ff       ; ArenaEntry: BIT $FFF9
+    jmp ArenaFrameStart
     ENDM
 ResetEntry   = $ff80
 DisplayEntry = $ff86
 LogicEntry   = $ff8c
 PrepareEntry = $ff92
 RenderEntry  = $ff98
+HudEntry     = $ff9e
+ArenaEntry   = $ffa4
 
     SEG ROM
     ORG $0000
@@ -37,6 +43,7 @@ RenderEntry  = $ff98
     include "enemies.asm"
     include "combat.asm"
     include "render.asm"
+    include "hud_kernel.asm"
     IF DISPLAY_TEST = 0
     include "hud.asm"
     ENDIF
@@ -48,6 +55,7 @@ RenderEntry  = $ff98
     include "audio.inc"
     ENDIF
     include "render_tables.inc"
+    include "hud_graphics.inc"
 Bank0End = *
     IF Bank0End > $ff80
         ERR
@@ -65,6 +73,9 @@ Bank0End = *
     include "frame.asm"
     include "kernel.asm"
     include "graphics.inc"
+    IF DISPLAY_TEST = 0
+    include "reuse_motion.inc"
+    ENDIF
 Bank1End = *
     IF Bank1End > $ff80
         ERR

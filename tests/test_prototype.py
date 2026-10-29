@@ -102,7 +102,7 @@ class CartridgeTests(unittest.TestCase):
         machine = self.machine()
         machine.frame(9, fire=True)
         self.assertEqual(machine.value("BombCount"), 1)
-        self.assertEqual(machine.value("BombCooldown"), 60)
+        self.assertEqual(machine.value("BombCooldown"), 30)
         self.assertEqual(machine.value("BombTimer"), 16)
         self.assertEqual(machine.value("Direction"), 1)
         for _ in range(90):
@@ -112,11 +112,11 @@ class CartridgeTests(unittest.TestCase):
         machine.frame(fire=True)
         self.assertEqual(machine.value("BombCount"), 2)
         machine.frame(fire=False)
-        for _ in range(57):
+        for _ in range(27):
             machine.frame()
-        machine.frame(fire=True)  # t+59: rejected
+        machine.frame(fire=True)  # t+29: rejected
         self.assertEqual(machine.value("BombCount"), 2)
-        machine.frame(fire=True)  # t+60: held, not queued
+        machine.frame(fire=True)  # t+30: held, not queued
         self.assertEqual(machine.value("BombCount"), 2)
         machine.frame(fire=False)
         machine.frame(fire=True)
@@ -125,7 +125,7 @@ class CartridgeTests(unittest.TestCase):
     def test_exact_cooldown_boundary(self):
         machine = self.machine()
         machine.frame(fire=True)
-        for _ in range(59):
+        for _ in range(29):
             machine.frame(fire=False)
         machine.frame(fire=True)
         self.assertEqual(machine.value("BombCount"), 2)
@@ -200,6 +200,12 @@ class CartridgeTests(unittest.TestCase):
                 scanlines[line].append((cycle % 76, register, value))
         schedule = [(3, 0x0d), (11, 0x0e), (27, 0x0f), (42, 0x0d), (50, 0x0e), (53, 0x0f)]
         for line, writes in enumerate(scanlines):
+            if not machine.diagnostic:
+                schedule = ([(6, 0x0d), (14, 0x0e), (30, 0x0f), (45, 0x0d), (53, 0x0e), (56, 0x0f)]
+                            if line % 2 == 0 else
+                            [(3, 0x0d), (11, 0x0e), (19, 0x0f), (29, 0x0d), (40, 0x0e), (writes[-1][0], 0x0f)])
+                if line % 2:
+                    self.assertIn(writes[-1][0], (50, 51, 52, 53))
             self.assertEqual(writes, [(cycle, register, value) for (cycle, register), value
                                      in zip(schedule, rows[line // 2])], (pattern, line))
 
@@ -221,7 +227,7 @@ class CartridgeTests(unittest.TestCase):
         for line, writes in enumerate(lines):
             moves = 0
             for cycle, register, value in writes:
-                self.assertNotIn(register, (0x0d, 0x0e, 0x0f, 0x20, 0x21))
+                self.assertNotIn(register, (0x0d, 0x0e, 0x0f, 0x20, 0x21) if machine.diagnostic else (0x0d, 0x0e, 0x0f, 0x20))
                 if register == 0x2a:
                     self.assertEqual(cycle, 3)
                     delta = motion >> 4

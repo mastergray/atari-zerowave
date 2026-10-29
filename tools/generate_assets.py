@@ -154,6 +154,48 @@ def hud_rows():
     return rows
 
 
+def travel_frames(kind, radius, threshold, tuning):
+    """Exact fixed-point time to reach a contact/spacing boundary."""
+    definitions = {row["id"]: row for row in tuning["enemy_types"]}
+    frames = 0
+    while radius > threshold:
+        speed = definitions[kind]["speed"]
+        if kind == 2:
+            if radius // 256 < tuning["diamond_near_radius"]:
+                speed = tuning["diamond_near_speed"]
+            elif radius // 256 < tuning["diamond_mid_radius"]:
+                speed = tuning["diamond_mid_speed"]
+        radius -= speed
+        frames += 1
+    return frames
+
+
+def pair_limits(tuning):
+    """Conservative bounds: one member stays outside radius 24 through the
+    other's approach and full death animation. Fractions use worst endpoints.
+    """
+    kinds = {row["id"] for row in tuning["enemy_types"]}
+    full = tuning["spawn_radius"] * 256
+    contact = tuning["contact_radius"] * 256
+    safe = tuning["pair_safe_radius"] * 256 - 1
+    burst = len(BURSTS) * tuning["enemy_burst_stage_frames"]
+    early, late = [], []
+    for old in range(8):
+        for new in range(8):
+            if old not in kinds or new not in kinds:
+                early.append(0); late.append(255)
+                continue
+            early_ok = [r for r in range(64) if
+                        travel_frames(old, r * 256 + 255, contact, tuning) + burst <
+                        travel_frames(new, full, safe, tuning)]
+            late_ok = [r for r in range(64) if
+                       travel_frames(new, full, contact, tuning) + burst <
+                       travel_frames(old, r * 256, safe, tuning)]
+            early.append(max(early_ok, default=-1) + 1)
+            late.append(min(late_ok, default=255))
+    return early, late
+
+
 def generate():
     tuning = load_config()
     fixtures = json.loads((ROOT / "config/fixtures.json").read_text())
@@ -255,6 +297,9 @@ def generate():
         if key == "score":
             values = [int(str(v), 16) for v in values]
         type_tables.append(byte_lines(label, values))
+    early, late = pair_limits(tuning)
+    type_tables.extend(["    IF DISPLAY_TEST = 0\n", byte_lines("PairEarlyLimit", early),
+                        byte_lines("PairLateLimit", late), "    ENDIF\n"])
     (OUT / "enemy_types.inc").write_text("".join(type_tables))
 
     patterns = [beam_rows(lane, tuning) for lane in range(9)]
@@ -323,6 +368,8 @@ def generate():
         render.append(byte_lines(name, [0] * 80 + shape[::-1], 256 if index % 2 == 0 else None))
         if index % 2:
             render.append(byte_lines("", [0] * 80))
+    graphics = render
+    render = []
     hud = hud_rows()
     render.append("    IF DISPLAY_TEST\n")
     for plane in range(6):
@@ -354,7 +401,13 @@ def generate():
         render.append(byte_lines(name, [int(f"{bits:03b}"[::-1], 2) << shift
                                        for glyph in DIGITS for bits in glyph], 64))
     render.append("    ENDIF\n")
-    (OUT / "graphics.inc").write_text("".join(render))
+    (OUT / "hud_graphics.inc").write_text("".join(render))
+    (OUT / "graphics.inc").write_text("".join(graphics))
+    deltas = [i if i < 128 else i - 256 for i in range(256)]
+    steps = [max(-7, min(7, value)) for value in deltas]
+    (OUT / "reuse_motion.inc").write_text(
+        byte_lines("ReuseMotion", [(-step & 15) << 4 for step in steps], 256) +
+        byte_lines("ReuseRemainder", [(value - step) & 255 for value, step in zip(deltas, steps)]))
 
     fixture_data = {f"Fixture{field}{slot}": [] for slot in range(2) for field in ("Flags", "Radius", "X", "Y")}
     for fixture in fixtures:
@@ -371,7 +424,7 @@ def generate():
                 fixture_data[f"Fixture{field}{slot}"].append(value)
     # Beam palette belongs to bank 0: game logic selects a shot hue (legacy release hue in diagnostics).
     (OUT / "fixtures.inc").write_text(byte_lines("BeamColors", tuning["beam_colors"]) +
-                                      "".join(byte_lines(name, values) for name, values in fixture_data.items()))
+                                      "    IF DISPLAY_TEST\n" + "".join(byte_lines(name, values) for name, values in fixture_data.items()) + "    ENDIF\n")
     movement = []
     for name, lane, axis, origin in (("RadiusXCardinal", 2, 0, tuning["center_x"]),
                                     ("RadiusYCardinal", 4, 1, tuning["center_y"]),

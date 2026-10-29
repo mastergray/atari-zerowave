@@ -19,8 +19,8 @@ UpdateBursts:
     bpl .slot
     rts
 
-; Four allocated slots, at most two active. Movement is unsigned 8.8 fixed point.
-; A/X/Y, CandidateLane, CoordDX/DY, MoveStep clobbered. Two slots: <700 cycles.
+; Four allocated slots, at most three active. Movement is unsigned 8.8 fixed point.
+; A/X/Y, CandidateLane, CoordDX/DY, MoveStep clobbered.
 MoveEnemies:
     SUBROUTINE
     ldx #0
@@ -132,7 +132,7 @@ PositionEnemy:
 
 ; Outputs ActiveCount, DrawableCount, FreeSlot ($ff if full), UsedLanes,
 ; BombTargetCount.
-; Bursts reserve their old slots and count toward the two-object display cap.
+; Bursts reserve their old slots and count toward the level display cap.
 ; A/X/Y clobbered. At most four slot visits, <250 cycles for this build.
 ScanEnemies:
     SUBROUTINE
@@ -173,23 +173,89 @@ ScanEnemies:
     rts
 
 ; Uses ScanEnemies outputs. No more than eight lane probes and one spawn.
-; A/X/Y, CandidateLane, CoordDX/DY clobbered; <500 cycles including positioning.
+; A/X/Y, CandidateLane, SpawnType, UsedLanes, CoordDX/DY clobbered.
 TrySpawn:
     SUBROUTINE
     lda SpawnTimer
     bne .done
-    lda ActiveCount
+    lda DrawableCount
     cmp ActiveCap
     bcs .done
-    lda DrawableCount
     cmp #VALIDATED_ENEMY_CAP
     bcs .done
     lda FreeSlot
     cmp #$ff
-    beq .done
+    bne .choose
+.done:
+    rts
+.choose:
     jsr NextRandom
     and #7
+    sta CandidateLane
+    jsr NextRandom
+    and #7
+    ora LevelTypeOffset
+    tay
+    lda LevelTypes,y
+    tay
+    and #4
+    beq .typeReady
+    lda SquareTimer
+    ora BombTargetCount
+    beq .typeReady
+    ldy #0
+.typeReady:
+    sty SpawnType
+    IF DISPLAY_TEST = 0
+    lda ActiveCap
+    cmp #3
+    bcc .probe
+    lda FreeSlot
+    and #1
+    bne .partner
+    lda UsedLanes
+    ora #$44              ; even pair uses upper/lower lanes; odd slot can use E/W
+    sta UsedLanes
+.partner:
+    lda FreeSlot
+    eor #2
     tax
+    lda EnemyFlags,x
+    bmi .livePartner
+    lda EnemyVisual,x
+    beq .probe
+    bne .retry             ; bursts keep their lane and draw reservation
+.livePartner:
+    and #TYPE_MASK
+    lsr                    ; old kind * 8 + new kind
+    ora SpawnType
+    tay
+    lda EnemyRadiusHi,x
+    cmp PairEarlyLimit,y
+    bcc .separate
+    cmp PairLateLimit,y
+    bcc .retry
+.separate:
+    lda EnemyFlags,x
+    and #7
+    cmp #2
+    beq .retry
+    cmp #6
+    beq .retry
+    cmp #3
+    bcc .upper
+    cmp #6
+    bcs .upper
+    lda #$7c              ; old lower half: allow only N, NE, NW
+    bne .restrict
+.upper:
+    lda #$c7              ; old upper half: allow only SE, S, SW
+.restrict:
+    ora UsedLanes
+    sta UsedLanes
+    ENDIF
+.probe:
+    ldx CandidateLane
     ldy #8
 .lane:
     lda LaneBits,x
@@ -201,29 +267,19 @@ TrySpawn:
     tax
     dey
     bne .lane
+.retry:
     lda #8
     sta SpawnTimer
     rts
 .found:
     stx CandidateLane
-    jsr NextRandom
-    and #7
-    ora LevelTypeOffset   ; level rows each contain eight weighted choices
-    tay
-    lda LevelTypes,y
-    tay
+    ldy SpawnType
+    tya
     and #4
-    beq .typeReady
-    lda SquareTimer
-    bne .triangle
-    lda BombTargetCount    ; mixed-speed bomb-only arrivals cannot pile up
-    bne .triangle
+    beq .create
     lda #SQUARE_SPAWN_GAP
     sta SquareTimer
-    jmp .typeReady
-.triangle:
-    ldy #0
-.typeReady:
+.create:
     ldx FreeSlot
     lda TypeHealth,y
     sta EnemyHealth,x
@@ -239,14 +295,12 @@ TrySpawn:
     sta EnemyRadiusHi,x
     lda #0
     sta EnemyRadiusLo,x
-    sta EnemyAge,x
     sta EnemyVisual,x
     jsr PositionEnemy
     inc ActiveCount
     inc DrawableCount
     lda SpawnInterval
     sta SpawnTimer
-.done:
     rts
 
 ; Nonzero 8-bit maximal LFSR, seed $a5. A clobbered, X/Y preserved, <25 cycles.

@@ -80,6 +80,7 @@ class Bus:
 
 class Machine:
     def __init__(self, bank=1, diagnostic=False):
+        self.diagnostic = diagnostic
         stem = "atari-zerowave-display" if diagnostic else "atari-zerowave"
         self.sym = symbols(ROOT / f"build/{stem}.sym")
         self.bus = Bus((ROOT / f"build/{stem}.bin").read_bytes(), bank)

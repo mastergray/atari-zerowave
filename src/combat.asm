@@ -1,5 +1,5 @@
 ; Per slot: bomb event, beam shot event, then surviving contact. All slots
-; resolve before mode changes. A/X/Y and CombatType clobbered; two slots <800 cycles.
+; resolve before mode changes. A/X/Y and CombatType clobbered.
 ResolveCombat:
     SUBROUTINE
     ldx #0
