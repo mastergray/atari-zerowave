@@ -1,6 +1,22 @@
 ; SPDX-FileCopyrightText: 2026 mastergray
 ; SPDX-License-Identifier: GPL-3.0-only
 
+; Cartridge entry point and memory layout. DASM emits two 4 KiB banks into an
+; 8 KiB F8 ROM; both banks appear to the CPU at $F000..$FFFF. ORG selects the
+; position in the ROM file, while RORG selects the address used by the CPU.
+;
+; Reading guide:
+;   game.asm -> play.asm/input.asm: frame update and controls
+;   enemies.asm/combat.asm/levels.asm: movement, attacks and wave progression
+;   render.asm/hud.asm: turn game state into pointers and display bytes
+;   frame.asm/hud_kernel.asm/kernel.asm: timed writes that draw the picture
+;   ram.inc: shared state, including scratch bytes reused between frame phases
+; Generated includes come from tools/generate_assets.py and config/*.json.
+; DISPLAY_TEST=1 builds static display fixtures instead of the playable game.
+;
+; One gameplay frame: overscan updates -> VSYNC -> VBLANK preparation -> HUD
+; -> arena/footer -> overscan. See docs/KERNEL_TIMING.md for scanline budgets.
+
     processor 6502
     IFNCONST DISPLAY_TEST
 DISPLAY_TEST = 0
@@ -11,6 +27,9 @@ DISPLAY_TEST = 0
     include "constants.inc"
 
 ; Every bank has matching jump trampolines and vectors. No cross-bank returns.
+; BIT reads an F8 hotspot ($FFF8 = bank 0, $FFF9 = bank 1). That changes the
+; bank immediately, so the following JMP must exist at the same address in
+; both banks. Use these entries with JMP; ordinary JSR/RTS stays within a bank.
     MAC COMMON_BANK_TAIL
     .byte $2c,$f8,$ff       ; ResetEntry: BIT $FFF8
     jmp Reset
@@ -46,6 +65,7 @@ ProgressRight2 = $ffe5
 DigitOffsets = $ffee
 
     SEG ROM
+; Bank 0 holds the game rules, display preparation and top HUD kernel.
     ORG $0000
     RORG $f000
     include "game.asm"
@@ -70,6 +90,7 @@ DigitOffsets = $ffee
     include "render_tables.inc"
     include "hud_graphics.inc"
 Bank0End = *
+; Keep code/data below the shared tail; this assertion catches bank overflow.
     IF Bank0End > $ff80
         ERR
     ENDIF
@@ -81,6 +102,7 @@ Bank0End = *
     .byte 0,0
     .word ResetEntry,ResetEntry,ResetEntry
 
+; Bank 1 holds frame synchronization, arena kernels and large graphics tables.
     ORG $1000
     RORG $f000
     include "frame.asm"

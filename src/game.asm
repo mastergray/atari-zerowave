@@ -1,6 +1,8 @@
 ; SPDX-FileCopyrightText: 2026 mastergray
 ; SPDX-License-Identifier: GPL-3.0-only
 
+; Power-on initialization and the overscan half of the frame loop. Game rules
+; run while the picture is blank, then wait out the remaining fixed frame time.
 Reset:
     SUBROUTINE
     sei
@@ -18,7 +20,7 @@ Reset:
     sta $00,x
     dex
     bpl .clearTia
-    sta SWACNT
+    sta SWACNT            ; all joystick port pins are inputs (direction = 0)
     lda #$a5
     ldx #7
 .guards:
@@ -32,6 +34,7 @@ Reset:
     lda #MODE_TITLE
     sta GameMode
     ENDIF
+    ; Treat held power-on buttons as history, not new presses on the next frame.
     jsr SampleInput
     lda CurrentButtons
     sta PreviousButtons
@@ -46,6 +49,8 @@ Reset:
 
 ; Entry: overscan line 0, cycle 13. Exit: bank 1 at line 29, then sync line 30.
 ; RIOT's first decrement is immediate; 34 leaves the line-29 WSYNC window.
+; TIM64T counts in 64-cycle intervals. The timer absorbs variable logic time;
+; logic must finish before this window, or polling would miss the frame deadline.
 GameFrame:
     SUBROUTINE
     lda #34
@@ -127,6 +132,9 @@ UpdatePrototype:
 ; the held/release experiment. A/X clobbered, no scratch, under 100 cycles.
 ; Laser Blast's decay is a low-nibble countdown 15..1, then hidden at zero.
 ; TIA ignores color bit 0, so brightness steps are 14,14,12,12,...,2,2,0.
+; Color is hue in the high nibble and luminance in the low nibble. A fresh shot
+; picks a hue, then fades without steering or further damage. Ring display frames
+; still advance this timer, so alternating effects cannot prolong the attack.
 UpdateBeamVisual:
     SUBROUTINE
     IF DISPLAY_TEST = 0

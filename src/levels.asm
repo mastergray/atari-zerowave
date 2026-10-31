@@ -1,6 +1,11 @@
 ; SPDX-FileCopyrightText: 2026 mastergray
 ; SPDX-License-Identifier: GPL-3.0-only
 
+; Wave settings come from config/levels.json through generated levels.inc.
+; Difficulty rows choose enemy mix, spawn interval and active cap. The displayed
+; BCD level, growing kill quota and repeating background palette are independent
+; of that row, so later waves can reuse the last mix without freezing progress.
+
 ; LevelNumber is packed BCD 01..99. Higher numbers reuse the final spawn row;
 ; the kill quota grows independently until capped.
 ; A/X/Y clobbered. Preserve score, health, RNG, input history and spawn scratch.
@@ -32,6 +37,8 @@ ConfigureLevel:
     sec
     sbc #1
     tay
+    ; Eight type entries per row form a weighted selection table. Repeated IDs
+    ; are intentional; a random 0..7 is combined with this aligned row offset.
     asl
     asl
     asl
@@ -48,6 +55,9 @@ ConfigureLevel:
     sta ActiveCap
     rts
 
+; Start a wave without resetting score, HP, RNG or the consumed input state.
+; The contiguous 32-byte clear removes slots, feedback and cached render state;
+; ClearWeapons then removes any old attack/fade before the next visible frame.
 LoadLevel:
     SUBROUTINE
     jsr ConfigureLevel
@@ -73,6 +83,8 @@ LoadLevel:
 ; A = min(8 + 4 * (decimal level - 1), 64). Preserve X/Y and scratch.
 ; Cap before conversion: only BCD 10..14 needs the six-value adjustment.
 ; Shared by level loading and the progress denominator, so the bar stays exact.
+; This compact arithmetic assumes quota step=4 and the cap is reached by BCD 19;
+; the asset generator checks those assumptions before writing tuning constants.
 CalculateQuota:
     SUBROUTINE
     lda LevelNumber

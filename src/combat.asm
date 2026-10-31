@@ -1,6 +1,15 @@
 ; SPDX-FileCopyrightText: 2026 mastergray
 ; SPDX-License-Identifier: GPL-3.0-only
 
+; Combat uses lane/radius geometry, not TIA pixel-collision registers. A beam
+; reaches every live enemy in its latched lane; a bomb checks every lane within
+; BOMB_RADIUS. Both events last one update and each valid hit removes one HP.
+; Their fades/rings are cosmetic and never cause extra hits on later updates.
+;
+; Generated TypeWeapons rules: triangles accept beams, squares and hexagons
+; accept bombs, diamonds accept both. A rejected beam on a hexagon also damages
+; the player. TypeHealth/TypeDamage/TypeScore supply the variant-specific values.
+
 ; Per slot: bomb event, beam shot event, then surviving contact. Slots count
 ; down to save loop cycles; all resolve before mode changes. A/X/Y and CombatType clobbered.
 ResolveCombat:
@@ -19,6 +28,8 @@ ResolveCombat:
     tay
     lda BombEvent
     beq .beam
+    ; Compare the full 8.8 distance: radius 24.00 is in range, 24.01 is not.
+    ; The low byte matters only when the integer parts are exactly equal.
     lda EnemyRadiusHi,x
     cmp #BOMB_RADIUS
     bcc .bombHit
@@ -34,6 +45,8 @@ ResolveCombat:
 .bombImmune:
     jsr ImmuneEnemy
 .beam:
+    ; A bomb kill cleared the active bit; skip its beam/retaliation/contact.
+    ; A surviving diamond can take both kinds of damage during this update.
     lda EnemyFlags,x
     bpl .next
     lda BeamEvent
@@ -51,6 +64,8 @@ ResolveCombat:
 .beamImmune:
     jsr ImmuneEnemy
 .contact:
+    ; Contact removes a survivor without score, quota credit or a kill burst.
+    ; Recheck activity because the beam may have destroyed it moments ago.
     lda EnemyFlags,x
     bpl .next
     lda EnemyRadiusHi,x
@@ -73,6 +88,8 @@ ResolveCombat:
     rts
 
 ; Contact or hexagon retaliation. Y=type index selects damage. X preserved.
+; Clamp at zero instead of wrapping unsigned HP to 255. PlayerHitTimer is only
+; a red-screen effect, not invulnerability; every contact still applies damage.
 DamagePlayer:
     SUBROUTINE
     lda Health
@@ -102,6 +119,8 @@ HitEnemy:
     lda #SFX_HIT
     jmp RequestSound
 .kill:
+    ; Preserve the lane until VBLANK computes the exact kill position from the
+    ; updated radius. After that the inactive burst keeps cached X/Y as it fades.
     ldy CombatType
     lda TypeScore,y
     jsr AwardScore
@@ -116,6 +135,8 @@ HitEnemy:
 
 ; Immunity flash; hit flash wins. A/Y clobbered, X preserved. A hexagon is
 ; immune only to beams, so this path retaliates after a bomb could kill it.
+; A successful-hit flash has priority if another attack was rejected in the
+; same update; suppressing the cosmetic shake does not suppress retaliation.
 ImmuneEnemy:
     SUBROUTINE
     lda EnemyVisual,x
@@ -136,6 +157,9 @@ ImmuneEnemy:
 ; A=packed-BCD award (type award). Saturates at 9999. X/Y preserved, <50 cycles.
 AwardScore:
     SUBROUTINE
+    ; Decimal ADC propagates from tens/ones into hundreds/thousands. Carry out
+    ; of ScoreHi means overflow past 9999; clamp both bytes. Always leave decimal
+    ; mode before returning: radius movement and timers require binary math.
     sed
     clc
     adc ScoreLo

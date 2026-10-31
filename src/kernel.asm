@@ -1,6 +1,17 @@
 ; SPDX-FileCopyrightText: 2026 mastergray
 ; SPDX-License-Identifier: GPL-3.0-only
 
+; A kernel writes TIA registers while each scanline is being drawn. There is
+; no framebuffer to upload: instruction order, page crossings and branch cycles
+; determine where pixels appear. Completion-cycle comments count from WSYNC.
+; Keep timed loops in place; docs/KERNEL_TIMING.md records their register deadlines.
+;
+; The arena is 80 logical rows, each repeated for two physical scanlines.
+; Y counts down, matching reversed generated tables. Horizontal beams/rings use
+; PF0/PF1/PF2; other beams use the one-color-clock ball with per-line motion.
+; Gameplay includes reuse_kernel.asm to time-share P1 between two enemies;
+; DISPLAY_TEST below keeps the simpler single-enemy diagnostic kernel.
+
 ArenaFrameStart:
     IF DISPLAY_TEST
     ldx #7
@@ -26,6 +37,8 @@ SeparatorLoop:
     sta COLUBK
     ENDIF
     sta HMCLR             ; well after blanking HMOVE; players stay stationary
+    ; Clear positioning motion before the arena's repeated HMOVE strobes.
+    ; The reuse kernel will explicitly supply new P1 motion between enemies.
     sta ENABL
     ldy #ARENA_ROWS-1      ; reverse indexing saves two loop cycles
     lda BallKernel
@@ -40,6 +53,9 @@ SeparatorLoop:
 ; Completion cycles: PF0=3, PF1=11, GRP1=19, PF2=27, GRP0=34,
 ; PF0=42, PF1=50, PF2=53. COLUPF stays fixed for the whole arena: the beam
 ; changes color between frames, with no stripes or scanline color gradient.
+; Playfield registers normally repeat across the two screen halves. Rewriting
+; them mid-line creates independent halves; a write must be late enough to
+; preserve the left pixels yet early enough to supply the right pixels.
     MAC ARENA_SCANLINE
     stx PF0
     lda (BeamLeft1),y

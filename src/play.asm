@@ -1,7 +1,12 @@
 ; SPDX-FileCopyrightText: 2026 mastergray
 ; SPDX-License-Identifier: GPL-3.0-only
 
-; Table-driven levels, with the four-enemy display ceiling.
+; Gameplay state machine, called once per frame from GameFrame in overscan.
+; PLAY order matters: timers -> movement -> per-slot attacks/contact ->
+; death/score bonus -> wave completion or spawning. In particular, a lethal
+; attack can prevent contact, but a score milestone cannot rescue a dead player.
+; TITLE/OVER wait for fire; RESET starts a fresh run from any mode. LEVEL_BREAK
+; pauses movement/combat while bursts and the completion sound finish.
 ; A/X/Y clobbered, logic scratch only; bounded slot loops.
 ; The complete update must stay below 2,000 cycles; measured paths are in tests.
 UpdateGame:
@@ -33,6 +38,9 @@ UpdateGame:
     jsr ClearWeapons
     jmp .finish
 .levelBreak:
+    ; Zero means the clear has not started yet. Entering this mode last update
+    ; left the completed green bar visible for a frame at the old level number.
+    ; Reuse SpawnTimer for the celebration; spawning is disabled in this mode.
     lda SpawnTimer
     bne .countdown
     lda PlayerHitTimer
@@ -46,6 +54,8 @@ UpdateGame:
     sta SoundRequest      ; no combat requests during the celebration
     bne .quiet
 .countdown:
+    ; The first celebration update never reaches here, so it retains all of
+    ; LEVEL_BREAK_FRAMES. Advance packed BCD only after the countdown expires.
     dec SpawnTimer
     bne .quiet
     lda KillsRemaining
@@ -79,6 +89,8 @@ UpdateGame:
     dec SquareTimer
 .squareDone:
     jsr MoveEnemies
+    ; Cooldown alone does not fire a bomb: it must also be a new button edge.
+    ; Damage happens this update; BombTimer only controls the visible ring.
     lda PressedButtons
     and #$80
     beq .combat
@@ -94,6 +106,8 @@ UpdateGame:
     lda #SFX_BOMB
     sta SoundRequest
 .combat:
+    ; Keep the old thousands digit through every slot's combat. One aggregate
+    ; comparison below awards at most one milestone after the final health is known.
     lda ScoreHi
     sta ScoreBeforeCombat
     jsr ResolveCombat
@@ -108,10 +122,12 @@ UpdateGame:
     jmp .finish
 .alive:
     ; Award once after all hits/contacts, independent of slot order. Full health
-    ; clears survivors; fatal contacts win. Four kills cannot span 1000 points.
+    ; clears survivors; fatal contacts win. Four kills cannot earn 1000 points
+    ; in one update, so they cannot cross two milestone boundaries at once.
     lda ScoreHi
     eor ScoreBeforeCombat
     and #$f0
+    ; Comparing BCD thousands also stops rewards repeating at saturated 9999.
     beq .noRecovery
     lda Health
     cmp #START_HP
@@ -120,6 +136,7 @@ UpdateGame:
     lda #SFX_CLEAR
     bne .bonusCue
 .heal:
+    ; Healing to full does not also trigger a clear: the branches are exclusive.
     inc Health
     lda #SFX_HEAL
 .bonusCue:
@@ -135,6 +152,8 @@ UpdateGame:
 .spawn:
     jsr TrySpawn
 .finish:
+    ; Save button history before VBLANK repurposes input scratch as HUD pixels.
+    ; Idle approach audio likewise must cache its radius before render work.
     lda CurrentButtons
     sta PreviousButtons
     IF DISPLAY_TEST = 0
@@ -189,7 +208,9 @@ StartRun:
     sta RandomState
     jmp LoadLevel
 
-; Stop attacks and afterglow for ready, reset, or game-over. A clobbered, <40 cycles.
+; Stop attacks and afterglow outside active play. A clobbered, <40 cycles.
+; Preserve BeamArmed/button history: held controls must not become fresh attacks
+; when a level starts. BombCooldown is separate and is reset by LoadLevel.
 ClearWeapons:
     lda #0
     sta BeamEnabled

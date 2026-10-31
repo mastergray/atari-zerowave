@@ -1,6 +1,10 @@
 ; SPDX-FileCopyrightText: 2026 mastergray
 ; SPDX-License-Identifier: GPL-3.0-only
 
+; Build the top HUD's score/health rows and status pointers during VBLANK.
+; Score and level are packed BCD, so each nibble already identifies a decimal
+; glyph. DigitOffsets maps it to a five-row font; no division by ten is needed.
+
 ; Ten score row bytes, health masks and status pointers. Uses display-only
 ; scratch after input history is committed. A/X/Y clobbered, <700 cycles.
 PrepareHud:
@@ -47,6 +51,9 @@ PrepareHud:
     lda #>LevelDigitOnes
     sta HudStatus2+1
 .score:
+    ; Compose two digits into each five-byte buffer. PF1 and PF2 draw their bits
+    ; in opposite orders, so DigitLeft/DigitRight and the shifts differ. These
+    ; are final register bytes, ready for the timing-critical SCORE_SCANLINE.
     lda ScoreHi
     lsr
     lsr
@@ -119,6 +126,10 @@ PrepareHud:
 
 ; Top score rows are finished. Reuse the five right-score bytes for the bar.
 ; Three binary division steps compute floor(8 * completed / quota).
+; There are nine fill masks (0..8). Handle full completion separately; otherwise
+; each shift doubles the remainder and each conditional subtraction yields the
+; next quotient bit via carry/ROL. This avoids a general division routine.
+; Odd mode numbers are PLAY/LEVEL_BREAK; other modes select the empty mask.
 PrepareProgress:
     SUBROUTINE
     ldx #0

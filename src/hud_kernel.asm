@@ -1,6 +1,12 @@
 ; SPDX-FileCopyrightText: 2026 mastergray
 ; SPDX-License-Identifier: GPL-3.0-only
 
+; Bank 0's timed top-HUD kernel. PF register rewrites split each scanline into
+; independent left/right halves: score on the left, health on the right, then
+; level or FIRE/OVER on a second row. Each font row is drawn twice for height.
+; NOPs and repeated macros place writes at specific beam positions; shortening
+; them would move or corrupt pixels even if the computed bytes stayed the same.
+
 ; HUD row 0 is blank. Draw rows 1..28 (diagnostic: 1..23) with independent halves.
 HudLoop:
     IF DISPLAY_TEST
@@ -59,6 +65,9 @@ ScoreHudLoop:
     sta PF2
     lda #7
     sta TIM64T            ; retain the HUD spacing while preparing the progress bar
+    ; Score pixels are finished, so their right-hand buffer is now available
+    ; for the footer masks. The timer keeps this variable work inside a fixed
+    ; seven-line gap before the status row, preserving the arena's start time.
     jsr PrepareProgress
 .waitProgress:
     lda INTIM

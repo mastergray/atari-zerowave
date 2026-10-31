@@ -3,10 +3,15 @@
 
 ; Channel 0 is the independent beam voice. Channel 1 plays one event envelope,
 ; or a distance-driven fast-triangle warning when no event is playing.
+; Each voice has three TIA registers: AUDC selects waveform/noise, AUDF the
+; frequency divider (larger is lower), and AUDV the volume (zero is silent).
 ; Higher/equal priority interrupts; lower priority is discarded, never queued.
 ; A/X/Y clobbered. Once per update, at the start of gameplay VBLANK.
 ; Idle warning consumes Temp from PrepareApproachAudio before render scratch;
 ; diagnostics update sound in overscan.
+; Sound IDs also encode priority; config/audio.json defines their envelopes.
+; Combat requests coalesce in SoundRequest during overscan, then this routine
+; chooses the channel-1 envelope once, after every slot has had its say.
 UpdateAudio:
     SUBROUTINE
     lda #4
@@ -53,6 +58,9 @@ UpdateAudio:
     lda SoundLength,x
     sta EventSoundTimer
 .continue:
+    ; Timer counts backward through generated per-frame sample indices.
+    ; Identical samples share a packed control/volume byte plus frequency byte;
+    ; the TIA keeps playing those register settings until next frame's update.
     lda EventSoundTimer
     beq .silent
     ldx EventSoundId
@@ -76,6 +84,8 @@ UpdateAudio:
     dec EventSoundTimer
     rts
 .silent:
+    ; The approach whistle uses the event channel only while idle. It is derived
+    ; from distance each update, so there is no queued warning to play afterward.
     sta EventSoundId
     lda GameMode
     cmp #MODE_PLAY

@@ -1,12 +1,26 @@
 ; SPDX-FileCopyrightText: 2026 mastergray
 ; SPDX-License-Identifier: GPL-3.0-only
 
+; Rendering preparation translates game state into a scanline schedule. The
+; visible kernels cannot afford gameplay decisions: give them row pointers,
+; colors, initial object positions and the row where P1 changes to enemy two.
+; Arena row pointers address bank 1 data, even though setup executes in bank 0.
+;
+; Hardware roles: P0 = turret; P1 = up to two enemies per frame; ball = thin
+; vertical/diagonal beam; playfield = horizontal beam or bomb outline. Alternate
+; frame pairs cover all four slots, and odd bomb frames substitute the ring.
+
 ; VBLANK setup runs in bank 0, with explicit bank jumps on entry/exit.
+; Update audio first: it consumes overscan scratch and selects the envelope
+; whose timer also drives bonus flashes. Then finish coordinates, HUD and TIA
+; positioning before RenderEntry waits for the fixed visible-picture boundary.
 PrepareFrame:
     IF DISPLAY_TEST = 0
     jsr UpdateAudio       ; same update's events, before bonus-flash color selection
     ldx #0
 .coordinate:
+    ; Live enemies use their new radius; scored kills get one final position.
+    ; Other inactive bursts retain their previous coordinates without moving.
     lda EnemyFlags,x
     bmi .liveCoordinate
     and #$40              ; newly scored burst: finish position, then clear marker
@@ -31,6 +45,9 @@ PrepareFrame:
 PrepareRender:
     SUBROUTINE
     IF DISPLAY_TEST = 0
+    ; Background priority: player damage, then healing/all-clear flash, then
+    ; the persistent level palette. Sound runs first, so this uses its updated
+    ; timer; bit 3 alternates eight-update flash and normal-background periods.
     ldy PlayerHitTimer
     bne .damageBackground
     ldx #COLOR_HEALTH_BONUS
@@ -59,6 +76,8 @@ PrepareRender:
     sta FramePhase
     lda BeamDrawColor     ; uniform fixed-hue shot fade (legacy held color in diagnostics)
     sta ArenaColor
+    ; Effects share display resources, not combat state. Beam and ring take
+    ; turns when a bomb is active; attack events were already resolved in logic.
     lda FramePhase
     beq .beamFrame
     ldx BombTimer
@@ -75,6 +94,9 @@ PrepareRender:
     lda #COLOR_BOMB
     sta ArenaColor
 .patternReady:
+    ; Patterns 0..7 = lanes, 8 = blank, 9..12 = expanding ring stages.
+    ; Generated parallel tables supply both the thin-ball bounds/motion and
+    ; four playfield streams. All indexed row reads must remain on one page.
     sty DisplayPattern
     lda BallKernelByPattern,y
     sta BallKernel
@@ -111,6 +133,8 @@ PrepareRender:
     sta HudColor
     ENDIF
     IF DISPLAY_TEST
+    ; Diagnostic fixtures select the drawable slot with the oldest draw age.
+    ; Gameplay uses stable pairs instead (reuse_render.asm), without these ages.
     lda #$ff
     sta SelectedSlot
     lda #0
@@ -219,6 +243,8 @@ PrepareRender:
     ENDIF
 .positionEnemy:
     IF DISPLAY_TEST = 0
+    ; A holds the upper enemy's X. Keep it on the stack while PrepareHud uses
+    ; the shared scratch bytes that just held pair-selection intermediates.
     pha
     jsr PrepareHud
     pla
@@ -240,6 +266,9 @@ PrepareRender:
 
 ; Standard coarse/fine positioning during blanking.
 ; A = left edge (0..159), X = object (player 0/1 or ball 4); A clobbered, <= 2 lines.
+; Each subtract/branch iteration delays RESP by 15 color clocks. The remainder
+; becomes a signed fine-motion nibble for the later HMOVE. Alignment and the
+; forced absolute HMP store are timing requirements, not space optimizations.
     align 16
 PositionPlayer:
     SUBROUTINE
@@ -258,6 +287,10 @@ PositionPlayer:
     rts
 
     IF DISPLAY_TEST = 0
+; X = drawable slot. Return A = display X (including cosmetic immunity shake),
+; NextSprite = padded row pointer, NextColor = color. Preserve X; clobber A/Y/Temp.
+; Square sprites have adjacent outline/filled versions: fill means bomb range,
+; while the base shape reflects remaining armor. Feedback changes only visuals.
 PrepareEnemyGraphic:
     SUBROUTINE
     ldy EnemyVisual,x
@@ -310,6 +343,10 @@ PrepareEnemyGraphic:
 .color:
     sta NextColor
 .graphic:
+    ; The kernel counts Y from 79 down to 0. Each shape has 80 leading zero
+    ; bytes plus eight reversed rows; offsetting the pointer by EnemyY+6 places
+    ; that window vertically without an in-kernel bounds test. The generator
+    ; packs two shapes per page and pads them so all 80 reads have fixed timing.
     lda GraphicHi,y
     sta NextSprite+1
     lda EnemyY,x
@@ -330,6 +367,9 @@ PrepareEnemyGraphic:
     ENDIF
 
     IF DISPLAY_TEST = 0
+; X = phase 0/1; inspect slots X and X+2. SelectedSlot/SecondSlot start at $ff.
+; Live sprites and inactive bursts are drawable; leave absent outputs at $ff.
+; Clobber A/X only, so the caller can sort a chosen pair by vertical position.
 ChooseRenderPair:
     SUBROUTINE
     lda EnemyFlags,x

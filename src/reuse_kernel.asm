@@ -4,7 +4,14 @@
 ; Player 1 is reused for a second, vertically separated enemy. Between the
 ; sprites, bounded HMOVE steps reposition it without interrupting beam/ring data.
 ; Only the first physical line writes player graphics; TIA retains both rows.
+; Inputs are prepared in reuse_render.asm. Y descends 79..0; ReuseRow marks
+; the blank row below the upper sprite. Above it, P1 stays still. At it, swap
+; pointer/color. Below it, reduce signed NextDelta toward zero using page-aligned
+; lookup tables, moving at most seven color clocks per logical row.
+; The spawner ensures that motion finishes before the lower sprite is visible.
+; X must return to zero before each scanline macro's constant-zero stores.
     MAC REUSE_CONTROL
+    ; Thin-beam path's second-line work. Parameter {1} is the next row's loop.
     SUBROUTINE
     cpy ReuseRow
     beq .reuse
@@ -47,6 +54,8 @@
     ENDM
 
     MAC REUSE_PF_SECOND
+    ; No GRP writes here: the first line's sprite pixels persist. Those spare
+    ; cycles let the caller switch sprites or prepare motion without a third line.
     stx PF0               ; 3
     lda (BeamLeft1),y
     sta PF1               ; 11
@@ -65,6 +74,8 @@ ArenaLoop:
     REUSE_PF_FIRST
     tya
     beq ArenaLastPair
+    ; Prefetch the horizontal step on the first line so the longer second-line
+    ; path still reaches WSYNC by cycle 75 (one cycle before the line ends).
     ldx NextDelta
     lda ReuseMotion,x
     sta Temp              ; prefetch motion while preserving the visible row
@@ -88,6 +99,7 @@ PFStatic:
     stx PF2               ; 50
     jmp PFRowDone
 PFReuse:
+    ; Both sprite windows are blank here, so the color/pointer swap is invisible.
     lda NextColor
     sta COLUP1
     stx PF2               ; 52, sprite is blank throughout this row
@@ -97,6 +109,8 @@ PFReuse:
     sta EnemySprite+1
     jmp PFRowDone
 ArenaLastPair:
+    ; Row zero has no successor. Its shorter exit avoids the usual row-control
+    ; work spilling into the first footer scanline.
     sta WSYNC
     REUSE_PF_SECOND
     nop
@@ -107,6 +121,9 @@ ArenaLastPair:
     jmp ArenaDone
 
 ThinBeamLoop:
+    ; HMOVE advances the ball every physical line for a continuous diagonal.
+    ; Clear HMP1 after the first line's strobe so the enemy moves only once per
+    ; logical row; REUSE_CONTROL prepares its next step on the second line.
     sta WSYNC
     sta HMOVE
     lda #0
@@ -153,6 +170,8 @@ ThinBeamLastPair:
     nop                   ; motion writes must follow HMOVE by at least 24 cycles
     sta HMBL
 ArenaDone:
+    ; Retire arena objects before the bottom bar. PrepareProgress already made
+    ; its masks in the HUD gap; only timed register writes remain for these rows.
     lda GameMode
     and #1                ; PLAY or LEVEL_BREAK; hide both bar rows otherwise
     bne ProgressFooter
@@ -204,6 +223,7 @@ ProgressFooter:
     lda HudProgress+4
     sta PF2               ; 52
 FooterDone:
+    ; Hide the picture, then bank-switch to the next overscan logic update.
     lda #2
     sta WSYNC
     sta VBLANK

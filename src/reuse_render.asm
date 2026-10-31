@@ -3,6 +3,11 @@
 
 ; Stable phases pair slots 0/2 and 1/3. Empty phases borrow the other phase.
 ; The spawner guarantees separation for each pair's entire remaining life.
+; This file is included inside PrepareRender, not called as a separate routine.
+; It prepares the upper sprite in EnemySprite/COLUP1 and the lower sprite in
+; NextSprite/NextColor, then rejoins .positionEnemy with the upper X in A.
+; Showing two separated enemies per frame lets one TIA player cover four slots
+; over two frames. A completely empty phase borrows, avoiding needless flicker.
     lda #0
     sta ReuseRow
     sta NextDelta
@@ -25,6 +30,8 @@
     ldy SecondSlot
     cpy #$ff
     beq .firstGraphic
+    ; Smaller screen Y is higher. Draw it first even when its slot number is
+    ; larger; the lower sprite must leave enough blank rows for repositioning.
     lda EnemyY,x
     cmp EnemyY,y
     bcc .ordered
@@ -59,6 +66,8 @@
     jsr PrepareEnemyGraphic
     sec
     sbc FirstDrawX
+    ; Signed two's-complement displacement. ReuseMotion/ReuseRemainder turn it
+    ; into small horizontal steps while the sprite pixels between enemies are 0.
     sta NextDelta
     inx
     txa
@@ -69,6 +78,8 @@
     lda #73
     sec
     sbc EnemyY,x
+    ; Reverse-index row immediately below the upper sprite's eight-row window.
+    ; The kernel swaps pointers/color there, then moves P1 during the gap.
     sta ReuseRow
 .single:
     lda FirstDrawX

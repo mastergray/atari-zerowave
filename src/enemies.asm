@@ -1,6 +1,12 @@
 ; SPDX-FileCopyrightText: 2026 mastergray
 ; SPDX-License-Identifier: GPL-3.0-only
 
+; Four parallel RAM slots hold every enemy and its destruction effect. Each
+; live slot follows one of eight fixed lanes toward the turret; its radius is
+; authoritative. Screen coordinates are cached later for rendering, not combat.
+; A dead slot remains reserved while its burst is visible, so spawning cannot
+; erase an explosion or break the display pair's separation guarantees.
+
 ; Cosmetic lifetimes advance before combat sets new timers. A/X clobbered,
 ; no scratch, at most four visits and <120 cycles. Coordinates stay fixed.
 UpdateBursts:
@@ -24,6 +30,9 @@ UpdateBursts:
 
 ; Four allocated slots, at most four active. Movement is unsigned 8.8 fixed point.
 ; A/X/Y and MoveStep clobbered. VBLANK derives coordinates after combat/spawning.
+; TypeSpeed is in 1/256 radius units per update: 32 moves 1/8 unit. Diamonds
+; substitute faster steps inside the middle/near radii. Subtracting the fraction
+; borrows into the whole byte; underflow clamps both bytes to zero.
 MoveEnemies:
     SUBROUTINE
     lda MovementEnabled   ; one check covers every slot, including debugger freeze
@@ -73,6 +82,10 @@ MoveEnemies:
 
 ; X=slot, radius_hi 0..63. Four shared magnitude tables replace per-lane X/Y
 ; tables. A/Y and CandidateLane, CoordDX/DY clobbered; X preserved, <180 cycles.
+; Odd lanes are diagonal. Cardinal lanes use only one axis; lane tests supply
+; the signs. The tables account for the arena's unequal horizontal/vertical
+; scale, avoiding trigonometry at runtime. (76,38) anchors the sprite at center;
+; EnemyY is measured in logical rows, each displayed on two physical scanlines.
 PositionEnemy:
     SUBROUTINE
     lda EnemyFlags,x
@@ -135,6 +148,9 @@ PositionEnemy:
 ; BombTargetCount.
 ; Bursts reserve their old slots and count toward the level display cap.
 ; A/X/Y clobbered. At most four slot visits, <250 cycles for this build.
+; UsedLanes is an eight-bit occupancy mask for live enemies; bomb-only types
+; are counted separately for their shared cap. Only an inactive slot with no
+; visual lifetime is free. The descending scan leaves the lowest free index.
 ScanEnemies:
     SUBROUTINE
     lda #0
@@ -175,6 +191,9 @@ ScanEnemies:
 
 ; Uses ScanEnemies outputs. No more than eight lane probes and one spawn.
 ; A/X/Y, CandidateLane, SpawnType, UsedLanes, CoordDX/DY clobbered.
+; Selection is deliberately bounded to fit overscan. Choose a type and starting
+; lane, mask out unsafe lanes, then probe clockwise once. A failed placement
+; retries in two updates; it never loops until it finds a random valid position.
 TrySpawn:
     SUBROUTINE
     lda SpawnTimer
@@ -203,6 +222,8 @@ TrySpawn:
     tay
     lda LevelTypes,y
     tay
+    ; Bomb-only enemies share a spawn gap and at most half the active cap.
+    ; If that family is unavailable, fall back to the basic beam-only triangle.
     and #4
     beq .typeReady
     lda SquareTimer
@@ -230,6 +251,9 @@ TrySpawn:
     ora #$44              ; E/W reserved for fast singletons in the odd phase
     sta UsedLanes
 .partner:
+    ; Slots 0/2 and 1/3 share one displayed frame. XOR 2 finds the other member.
+    ; The two P1 draws need a vertical gap for horizontal repositioning; spawn
+    ; restrictions preserve that gap through movement and the final burst.
     lda FreeSlot
     eor #2
     tax
@@ -255,6 +279,9 @@ TrySpawn:
     cmp PairLateLimit,y
     bcc .retry
 .separate:
+    ; A partner far out or almost finished can be safe; the middle arrival
+    ; window is rejected. Generated bounds include type speed, acceleration and
+    ; burst lifetime. Place the new enemy in the opposite vertical half.
     lda EnemyFlags,x
     and #7
     cmp #3
@@ -271,7 +298,8 @@ TrySpawn:
     jmp .probe
 .horizontalPartner:
     ; A new vertical partner stays outside radius 36 until this horizontal
-    ; enemy and its possible burst finish. Old levels can carry any type here.
+    ; enemy and its possible burst finish. Its type-pair bound is stricter than
+    ; the usual opposite-half case because this sprite sits at turret height.
     lda EnemyFlags,x
     and #TYPE_MASK
     lsr
@@ -302,6 +330,8 @@ TrySpawn:
     sta SpawnTimer
     rts
 .found:
+    ; Only a successful placement starts the normal delays. Coordinates are
+    ; left to PrepareFrame after combat/spawning, keeping logic work bounded.
     stx CandidateLane
     ldy SpawnType
     tya
@@ -333,6 +363,8 @@ TrySpawn:
     rts
 
 ; Nonzero 8-bit maximal LFSR, seed $a5. A clobbered, X/Y preserved, <25 cycles.
+; Shift out one bit and apply feedback when it was set. Zero is a stuck state,
+; so StartRun seeds a nonzero value. A fixed seed also makes runs reproducible.
 NextRandom:
     SUBROUTINE
     lda RandomState

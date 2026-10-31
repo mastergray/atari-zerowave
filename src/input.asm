@@ -4,6 +4,9 @@
 ; Sample controls. Clobbers A/X; outputs current/pressed bits and Direction.
 ; Bit 7 = fire, bit 1 = SELECT, bit 0 = RESET. At most 160 cycles.
 ; Gameplay emits one BeamEvent per center-to-direction edge.
+; Hardware switches are active low; invert them before edge detection.
+; PressedButtons = current AND NOT previous. UpdateGame commits the history
+; even outside PLAY, so starting a run or waiting between waves consumes inputs.
 SampleInput:
     SUBROUTINE
     lda INPT4
@@ -19,6 +22,8 @@ SampleInput:
     eor #$ff
     and CurrentButtons
     sta PressedButtons
+    ; Left joystick occupies SWCHA's upper nibble. After inversion/shifting,
+    ; bits 0..3 mean up, down, left, right; use all 16 combinations as an index.
     lda SWCHA
     eor #$ff
     lsr
@@ -63,5 +68,8 @@ SampleInput:
     sta BeamEnabled
     rts
 
+; Clockwise lanes: N=0, NE=1, E=2, SE=3, S=4, SW=5, W=6, NW=7.
+; $ff rejects neutral/ambiguous combinations. Even if an opposing combination
+; decodes to a lane, it cannot rearm: only the physical zero nibble can do that.
 DirectionDecode:
     .byte $ff,0,4,$ff,6,7,5,6,2,1,3,2,$ff,0,4,$ff
