@@ -1,5 +1,27 @@
+; SPDX-FileCopyrightText: 2026 mastergray
+; SPDX-License-Identifier: GPL-3.0-only
+
 ; VBLANK setup runs in bank 0, with explicit bank jumps on entry/exit.
 PrepareFrame:
+    IF DISPLAY_TEST = 0
+    jsr UpdateAudio       ; same update's events, before bonus-flash color selection
+    ldx #0
+.coordinate:
+    lda EnemyFlags,x
+    bmi .liveCoordinate
+    and #$40              ; newly scored burst: finish position, then clear marker
+    beq .nextCoordinate
+    jsr PositionEnemy
+    lda #0
+    sta EnemyFlags,x
+    jmp .nextCoordinate
+.liveCoordinate:
+    jsr PositionEnemy     ; all live/newly scored coordinates update after combat
+.nextCoordinate:
+    inx
+    cpx #MAX_ENEMIES
+    bne .coordinate
+    ENDIF
     jsr PrepareRender
     jmp RenderEntry
 
@@ -10,7 +32,26 @@ PrepareRender:
     SUBROUTINE
     IF DISPLAY_TEST = 0
     ldy PlayerHitTimer
+    bne .damageBackground
+    ldx #COLOR_HEALTH_BONUS
+    lda EventSoundId
+    cmp #SFX_HEAL
+    beq .bonusFlash
+    cmp #SFX_CLEAR
+    bne .levelBackground
+    ldx #COLOR_CLEAR_BONUS
+.bonusFlash:
+    lda EventSoundTimer
+    and #8                ; two eight-update flashes in either 32-update bonus cue
+    beq .levelBackground
+    txa
+    bne .backgroundReady
+.levelBackground:
+    lda LevelBackground
+    jmp .backgroundReady
+.damageBackground:
     lda PlayerHitColorByTimer,y
+.backgroundReady:
     sta COLUBK            ; one background color for the whole visible picture
     ENDIF
     lda FrameCounter
@@ -61,12 +102,14 @@ PrepareRender:
     sta BeamRight1
     lda PatternRight1Hi,y
     sta BeamRight1+1
+    IF DISPLAY_TEST
     lda #COLOR_READY
     ldx BombCooldown
     beq .ready
     lda #COLOR_WAITING
 .ready:
     sta HudColor
+    ENDIF
     IF DISPLAY_TEST
     lda #$ff
     sta SelectedSlot
@@ -118,9 +161,10 @@ PrepareRender:
     sta COLUP1
     lda TypeSprite,y
     tay
-    lda EnemyFlags,x
-    and #$40
-    beq .feedback
+    cpy #2                ; only square graphics 2..5 have an outline/fill pair
+    bcc .feedback
+    cpy #6                ; diamond and shared hexagon/flash shape stay filled
+    bcs .feedback
     lda EnemyHealth,x
     cmp #1
     bne .range
@@ -235,9 +279,10 @@ PrepareEnemyGraphic:
     sta NextColor
     lda TypeSprite,y
     tay
-    lda EnemyFlags,x
-    and #$40
-    beq .feedback
+    cpy #2                ; only square graphics 2..5 have an outline/fill pair
+    bcc .feedback
+    cpy #6                ; diamond and shared hexagon/flash shape stay filled
+    bcs .feedback
     lda EnemyHealth,x
     cmp #1
     bne .range
@@ -280,7 +325,6 @@ PrepareEnemyGraphic:
     bmi .return
     clc
     adc ImmuneOffsetByTimer,y ; cosmetic shake; collision position never moves
-    jmp .return
 .return:
     rts
     ENDIF

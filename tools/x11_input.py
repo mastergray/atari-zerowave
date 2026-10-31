@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 mastergray
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Small XTest helper for our own isolated Stella validation window."""
 import ctypes
 import time

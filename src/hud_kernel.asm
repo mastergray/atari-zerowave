@@ -1,4 +1,7 @@
-; HUD row 0 is blank. Rows 1..23 are drawn here with independent PF halves.
+; SPDX-FileCopyrightText: 2026 mastergray
+; SPDX-License-Identifier: GPL-3.0-only
+
+; HUD row 0 is blank. Draw rows 1..28 (diagnostic: 1..23) with independent halves.
 HudLoop:
     IF DISPLAY_TEST
     sta WSYNC
@@ -54,7 +57,13 @@ ScoreHudLoop:
     sta WSYNC             ; line 12
     sta PF1
     sta PF2
-    sta WSYNC             ; line 13
+    lda #7
+    sta TIM64T            ; retain the HUD spacing while preparing the progress bar
+    jsr PrepareProgress
+.waitProgress:
+    lda INTIM
+    bne .waitProgress
+    sta WSYNC             ; line 18, last blank row before status line 19
     ldy #0
     lda GameMode
     cmp #MODE_PLAY
@@ -68,19 +77,18 @@ ScoreHudLoop:
     sta PF1               ; 13
     lda (HudStatus2),y
     sta PF2               ; 21
-    lda BombHud1,y
-    REPEAT 6
+    lda #0
+    REPEAT 7
     nop
     REPEND
-    sta PF1               ; 40
-    lda HudColor
+    sta PF1               ; 40, clear right half
+    REPEAT 4
     nop
-    sta COLUPF            ; 48, right half's bomb-ready color
-    lda BombHud2,y
-    sta PF2               ; 55
+    REPEND
+    sta PF2               ; 51, after left PF2 finishes
     ENDM
 StatusHudLoop:
-    sta WSYNC             ; lines 14..23, FIRE / PLAY / OVER and BOMB
+    sta WSYNC             ; lines 19..28, FIRE / OVER only
     STATUS_SCANLINE
     sta WSYNC
     STATUS_SCANLINE
@@ -89,26 +97,26 @@ StatusHudLoop:
     bne StatusHudLoop
     jmp HudStatusDone
     MAC LEVEL_SCANLINE
+    lda #0
+    sta PF0               ; 5, left margin
     lda #COLOR_TURRET
-    sta COLUPF            ; 5
+    sta COLUPF            ; 10
     lda LevelLabel,y
-    sta PF1               ; 12, LV
+    sta PF1               ; 17, LV
     lda (HudStatus1),y
-    sta Temp              ; tens digit; renderer scratch is finished
+    sta Temp
     lda (HudStatus2),y
     ora Temp
-    sta PF2               ; 31, before left PF2 begins displaying
-    lda BombHud1,y
+    sta PF2               ; 36, level digits before left PF2 begins
+    lda #0
+    sta PF1               ; 41, clear right half after left PF1 finishes
+    REPEAT 3
     nop
-    sta PF1               ; 40
-    lda HudColor
-    nop
-    sta COLUPF            ; 48
-    lda BombHud2,y
-    sta PF2               ; 55
+    REPEND
+    sta PF2               ; 50, after left PF2 finishes
     ENDM
 LevelHudLoop:
-    sta WSYNC             ; lines 14..23: LV 01..99 and BOMB
+    sta WSYNC             ; lines 19..28: LV 01 only
     LEVEL_SCANLINE
     sta WSYNC
     LEVEL_SCANLINE
@@ -117,9 +125,11 @@ LevelHudLoop:
     bne LevelHudLoop
 HudStatusDone:
     ENDIF
-    sta WSYNC             ; separator line 24, before switching back to bank 1
+    sta WSYNC             ; gameplay separator line 29; diagnostic separator 24
     lda #0
+    IF DISPLAY_TEST
     sta PF0
     sta PF1
     sta PF2
+    ENDIF
     jmp ArenaEntry

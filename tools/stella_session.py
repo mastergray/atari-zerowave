@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 mastergray
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Shared X11/Stella debugger runner for display and combat scenarios."""
 from pathlib import Path
 import fcntl

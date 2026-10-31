@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 mastergray
+# SPDX-License-Identifier: GPL-3.0-only
+
 import math
 import itertools
 import json
@@ -112,27 +115,36 @@ class DensityTests(unittest.TestCase):
             seen.update(drawn_slots(m))
         self.assertEqual(seen, {0, 1, 2})
 
-    def test_level_two_reaches_three_and_never_hides_an_enemy_for_two_frames(self):
-        m = self.game()
-        peak, first_three, previous = 0, None, set()
-        last_draw = {}
-        for frame in range(1800):
-            m.poke('Health', 5)  # keep observing unattended arrivals after contacts
+    def test_later_levels_reach_four_and_never_hide_an_enemy_for_two_frames(self):
+        for level, expected in ((2, {0, 1, 4}), (6, {6}), (8, {6, 7})):
+            m = self.game()
+            m.poke('LevelNumber', level)
+            m.poke('GameMode', 3)
+            m.poke('SpawnTimer', 1)
             self.frame(m)
-            live = {s for s in range(4) if m.value('EnemyFlags', s) & 0x80 or m.value('EnemyVisual', s)}
-            for s in live - previous:
-                last_draw[s] = frame - 1
-            for s in drawn_slots(m):
-                last_draw[s] = frame
-            for s in live:
-                self.assertLessEqual(frame - last_draw[s], 1)
-            self.assertLessEqual(len(live), 3)
-            peak = max(peak, len(live))
-            if len(live) == 3 and first_three is None:
-                first_three = frame + 1
-            previous = live
-        self.assertEqual(peak, 3)
-        self.assertLessEqual(first_three, 240)  # within four seconds of level 2
+            peak, first_four, previous = 0, None, set()
+            last_draw, kinds = {}, set()
+            for frame in range(1800):
+                m.poke('Health', 5)  # keep observing unattended arrivals after contacts
+                self.frame(m)
+                live = {s for s in range(4) if m.value('EnemyFlags', s) & 0x80 or m.value('EnemyVisual', s)}
+                for s in live - previous:
+                    last_draw[s] = frame - 1
+                for s in drawn_slots(m):
+                    last_draw[s] = frame
+                for s in live:
+                    self.assertLessEqual(frame - last_draw[s], 1)
+                self.assertLessEqual(len(live), 4)
+                peak = max(peak, len(live))
+                if len(live) == 4 and first_four is None:
+                    first_four = frame + 1
+                previous = live
+                kinds.update((m.value('EnemyFlags', s) >> 4) & 7 for s in live)
+                self.assertLessEqual(sum(bool(m.value('EnemyFlags', s) & 0x40) for s in live), 2)
+            self.assertEqual(peak, 4)
+            self.assertLessEqual(first_four, 120)  # within two seconds of entering the level
+
+            self.assertTrue(expected <= kinds, (level, kinds))
 
     def test_pair_boundaries_account_for_every_type_fraction_and_death_animation(self):
         tuning = assets.load_config()
@@ -152,14 +164,82 @@ class DensityTests(unittest.TestCase):
                                 assets.travel_frames(old, radius, contact, tuning) + 18 < assets.travel_frames(new, full, safe, tuning)
                                 or assets.travel_frames(new, full, contact, tuning) + 18 < assets.travel_frames(old, radius, safe, tuning))
 
-    def test_three_target_combat_all_type_combinations_fits_frame_budget(self):
-        for kinds in itertools.product((0, 1, 2, 4, 5), repeat=3):
+    def test_four_target_combat_all_type_combinations_fits_frame_budget(self):
+        for kinds in itertools.product((0, 1, 2, 4, 5, 6, 7), repeat=4):
             m = self.game()
             m.poke('MovementEnabled', 0)
             m.poke('SpawnTimer', 255)
-            for slot, lane, radius, kind in zip((0, 1, 2), (7, 2, 3), (24, 20, 9), kinds):
+            for slot, lane, radius, kind in zip((0, 1, 2, 3), (7, 0, 3, 4), (24, 24, 9, 9), kinds):
                 self.enemy(m, slot, lane, radius, kind)
                 m.poke('EnemyHealth', 2 if kind == 5 else 3 if kind == 2 else 1, slot)
             self.frame(m, 5, fire=True)
             self.frame(m, 5, fire=True)
             self.assertEqual(m.value('Health'), 5)
+
+    def test_approach_audio_and_dense_render_share_vblank_budget(self):
+        for radii in itertools.permutations((24, 32, 40, 48)):
+            for lanes in ((7, 0, 3, 4), (0, 7, 4, 3)):
+                for fire_beam in (False, True):
+                    m = self.game()
+                    m.poke('MovementEnabled', 0)
+                    m.poke('SpawnTimer', 255)
+                    for slot, lane, radius in zip(range(4), lanes, radii):
+                        self.enemy(m, slot, lane, radius, kind=1)
+                        if radius == 24:
+                            m.poke('EnemyVisual', 8, slot)  # immunity outlasts its sound
+                    self.frame(m, 8 if fire_beam else 0)  # empty east lane, independent shot voice
+                    self.frame(m, 8 if fire_beam else 0)
+                    self.assertEqual(m.value('EventSoundId'), 0)
+                    self.assertGreater(m.bus.tia[0x1a], 0)
+
+    def test_horizontal_partners_remain_drawable_through_approach_and_bursts(self):
+        tuning = assets.load_config()
+        early, _ = assets.pair_limits(dict(tuning, pair_safe_radius=36))
+        kinds = {t['id']: t for t in tuning['enemy_types']}
+        contact = tuning['contact_radius'] * 256
+        def path(kind, radius):
+            result = []
+            while radius > contact:
+                result.append(radius // 256)
+                speed = kinds[kind]['speed']
+                if kind == 2:
+                    if radius // 256 < 24:
+                        speed = tuning['diamond_near_speed']
+                    elif radius // 256 < 40:
+                        speed = tuning['diamond_mid_speed']
+                radius -= speed
+            return result
+        vertical = {kind: path(kind, 63 * 256) for kind in kinds}
+        dx = [assets.center(2, r, tuning)[0] - 80 for r in range(64)]
+        diag = [assets.center(3, r, tuning) for r in range(64)]
+        for old in kinds:
+            for new in kinds:
+                for radius in range(9, min(64, early[old * 8 + new])):
+                    horizontal = path(old, radius * 256 + 255)
+                    for t, old_radius in enumerate(horizontal):
+                        # Killing now freezes X for the full burst while the
+                        # vertical enemy continues to the smallest safe gap.
+                        self.assertLess(t + 18, len(vertical[new]))
+                        new_radius = vertical[new][t + 18]
+                        x, y = diag[new_radius]
+                        blank = y - 40 - 8
+                        needed = math.ceil((dx[old_radius] + x - 80 + 4) / 7) + 1
+                        self.assertGreaterEqual(blank, needed, (old, new, radius, t))
+
+    def test_fast_horizontal_spawns_keep_both_east_and_west_available(self):
+        m = self.game()
+        m.poke('MovementEnabled', 0)
+        seen = set()
+        for seed in range(1, 256):
+            for slot in range(4):
+                m.poke('EnemyFlags', 0, slot)
+                m.poke('EnemyVisual', 0, slot)
+            self.enemy(m, 0, 0, 63, kind=0)
+            m.poke('RandomState', seed)
+            m.poke('SpawnTimer', 1)
+            self.frame(m)
+            flags = m.value('EnemyFlags', 1)
+            if flags & 7 in (2, 6):
+                self.assertEqual(flags & 0xf0, 0x90)
+                seen.add(flags & 7)
+        self.assertEqual(seen, {2, 6})

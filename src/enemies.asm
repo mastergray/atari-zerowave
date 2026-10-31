@@ -1,3 +1,6 @@
+; SPDX-FileCopyrightText: 2026 mastergray
+; SPDX-License-Identifier: GPL-3.0-only
+
 ; Cosmetic lifetimes advance before combat sets new timers. A/X clobbered,
 ; no scratch, at most four visits and <120 cycles. Coordinates stay fixed.
 UpdateBursts:
@@ -19,16 +22,16 @@ UpdateBursts:
     bpl .slot
     rts
 
-; Four allocated slots, at most three active. Movement is unsigned 8.8 fixed point.
-; A/X/Y, CandidateLane, CoordDX/DY, MoveStep clobbered.
+; Four allocated slots, at most four active. Movement is unsigned 8.8 fixed point.
+; A/X/Y and MoveStep clobbered. VBLANK derives coordinates after combat/spawning.
 MoveEnemies:
     SUBROUTINE
-    ldx #0
+    lda MovementEnabled   ; one check covers every slot, including debugger freeze
+    beq .done
+    ldx #MAX_ENEMIES-1
 .slot:
     lda EnemyFlags,x
     bpl .next
-    lda MovementEnabled   ; zero freezes movement for debugger fixtures
-    beq .position
     lda EnemyFlags,x
     and #TYPE_MASK
     lsr
@@ -62,12 +65,10 @@ MoveEnemies:
     sta EnemyRadiusLo,x
 .store:
     sta EnemyRadiusHi,x
-.position:
-    jsr PositionEnemy
 .next:
-    inx
-    cpx #MAX_ENEMIES
-    bne .slot
+    dex
+    bpl .slot
+.done:
     rts
 
 ; X=slot, radius_hi 0..63. Four shared magnitude tables replace per-lane X/Y
@@ -193,7 +194,11 @@ TrySpawn:
     and #7
     sta CandidateLane
     jsr NextRandom
-    and #7
+    lsr
+    lsr
+    lsr
+    lsr
+    lsr                    ; upper bits keep type selection independent of lane
     ora LevelTypeOffset
     tay
     lda LevelTypes,y
@@ -201,8 +206,12 @@ TrySpawn:
     and #4
     beq .typeReady
     lda SquareTimer
-    ora BombTargetCount
-    beq .typeReady
+    bne .triangle
+    lda BombTargetCount
+    asl                    ; one bomb-only target with two slots, two with four
+    cmp ActiveCap
+    bcc .typeReady
+.triangle:
     ldy #0
 .typeReady:
     sty SpawnType
@@ -212,9 +221,13 @@ TrySpawn:
     bcc .probe
     lda FreeSlot
     and #1
-    bne .partner
+    beq .verticalOnly
+    lda SpawnType
+    cmp #(TYPE_FAST >> 4)
+    beq .partner
+.verticalOnly:
     lda UsedLanes
-    ora #$44              ; even pair uses upper/lower lanes; odd slot can use E/W
+    ora #$44              ; E/W reserved for fast singletons in the odd phase
     sta UsedLanes
 .partner:
     lda FreeSlot
@@ -226,6 +239,12 @@ TrySpawn:
     beq .probe
     bne .retry             ; bursts keep their lane and draw reservation
 .livePartner:
+    and #7
+    cmp #2
+    beq .horizontalPartner
+    cmp #6
+    beq .horizontalPartner
+    lda EnemyFlags,x
     and #TYPE_MASK
     lsr                    ; old kind * 8 + new kind
     ora SpawnType
@@ -238,10 +257,6 @@ TrySpawn:
 .separate:
     lda EnemyFlags,x
     and #7
-    cmp #2
-    beq .retry
-    cmp #6
-    beq .retry
     cmp #3
     bcc .upper
     cmp #6
@@ -252,6 +267,21 @@ TrySpawn:
     lda #$c7              ; old upper half: allow only SE, S, SW
 .restrict:
     ora UsedLanes
+    sta UsedLanes
+    jmp .probe
+.horizontalPartner:
+    ; A new vertical partner stays outside radius 36 until this horizontal
+    ; enemy and its possible burst finish. Old levels can carry any type here.
+    lda EnemyFlags,x
+    and #TYPE_MASK
+    lsr
+    ora SpawnType
+    tay
+    lda EnemyRadiusHi,x
+    cmp HorizontalEarlyLimit,y
+    bcs .retry
+    lda UsedLanes
+    ora #$44
     sta UsedLanes
     ENDIF
 .probe:
@@ -268,7 +298,7 @@ TrySpawn:
     dey
     bne .lane
 .retry:
-    lda #8
+    lda #2
     sta SpawnTimer
     rts
 .found:
@@ -296,7 +326,6 @@ TrySpawn:
     lda #0
     sta EnemyRadiusLo,x
     sta EnemyVisual,x
-    jsr PositionEnemy
     inc ActiveCount
     inc DrawableCount
     lda SpawnInterval

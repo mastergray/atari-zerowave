@@ -1,3 +1,6 @@
+; SPDX-FileCopyrightText: 2026 mastergray
+; SPDX-License-Identifier: GPL-3.0-only
+
 ; Entry after overscan line-29 boundary. Sync begins at the next boundary.
 FrameStart:
     SUBROUTINE
@@ -17,7 +20,11 @@ PrepareDone:
     lda INTIM
     bne .wait
     sta WSYNC             ; blank line 36
+    IF DISPLAY_TEST
     lda HudColor
+    ELSE
+    lda #COLOR_TURRET
+    ENDIF
     sta COLUPF
     IF DISPLAY_TEST
     lda #COLOR_BACKGROUND

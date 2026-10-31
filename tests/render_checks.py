@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 mastergray
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Reconstruct retained TIA sprite rows and P1 motion from real ROM writes."""
 import test_prototype as prototype
 assets = prototype.assets
@@ -15,7 +18,7 @@ def sprite(m, slot):
     kind = next(t for t in tuning['enemy_types'] if t['id'] == ((flags >> 4) & 7))
     graphic, color = kind['sprite'], kind['color']
     x = m.value('EnemyX', slot)
-    if flags & 0x40:
+    if flags & 0x40 and kind['id'] != 7:
         if m.value('EnemyHealth', slot) == 1:
             graphic = 2
         graphic += m.value('EnemyRadiusHi', slot) * 256 + m.value('EnemyRadiusLo', slot) <= 24 * 256
@@ -39,7 +42,7 @@ def assert_sprites(test, m):
     motion, grp0, grp1, color, arena_color = 0, 0, 0, 0, 0
     lines = [[] for _ in range(160)]
     for cycle, register, value in m.bus.events:
-        line = (cycle - origin) // 76 - 72
+        line = (cycle - origin) // 76 - m.sym["ARENA_START_LINE"]
         if line < 0:
             if register == 0x11:
                 x = 3 * (cycle % 76) - 63

@@ -21,6 +21,7 @@ Thumbs.db
 # Local toolchain, generated ROMs, emulator state, and Python caches
 .tools/
 build/
+dist/
 .venv/
 __pycache__/
 *.pyc

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 mastergray
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Structural checks on the actual DASM image and symbol file."""
 from pathlib import Path
 import hashlib
@@ -25,8 +28,16 @@ def check(display=False):
     assert len(rom) == 8192, "Wrong F8 image size"
     assert rom[0xf80:0x1000] == rom[0x1f80:0x2000], "Bank stubs/vectors differ"
     assert rom[0xffa:0x1000] == b"\x80\xff" * 3, "Invalid vectors"
+    if not display:
+        assert sym["LevelDigitOnes"] == 0xffaa
+        assert sym["ProgressRight1"] == 0xffdc and sym["ProgressRight2"] == 0xffe5
+        shared = (ROOT / "build/generated/shared_hud.inc").read_text()
+        data = bytes(int(value, 16) for value in re.findall(r"\$([0-9a-f]{2})", shared))
+        assert sym["DigitOffsets"] == 0xffee
+        assert len(data) == 78 and rom[0xfaa:0xff8] == data, "Shared HUD data misplaced"
     assert sym["RamEnd"] == 0x100 and sym["StackBottom"] == 0xf0
     assert sym["GuardStart"] == 0xe8 and sym["EnemyFlags"] == 0x80
+    assert sym["ARENA_START_LINE"] == (72 if display else 70)
     for bank in (0, 1):
         assert sym[f"Bank{bank}End"] <= 0xff80, "Bank overflows trampoline area"
     for name, address in sym.items():
@@ -34,9 +45,9 @@ def check(display=False):
             assert (address & 255) + 79 < 256, f"Page crossing: {name}"
         elif name.startswith("HudPlane"):
             assert (address & 255) + 23 < 256, f"Page crossing: {name}"
-        elif name.startswith(("HudText", "BombHud")):
+        elif name.startswith("HudText"):
             assert (address & 255) + 4 < 256, f"Page crossing: {name}"
-        elif name in ("LevelDigitTens", "LevelDigitOnes"):
+        elif name in ("DigitLeft", "DigitRight", "LevelDigitTens", "LevelDigitOnes"):
             assert (address & 255) + 49 < 256, f"Page crossing: {name}"
         elif name in ("ReuseMotion", "ReuseRemainder"):
             assert address & 255 == 0, f"Motion table must be page aligned: {name}"
@@ -49,8 +60,9 @@ def check(display=False):
     report = {
         "rom_bytes": len(rom), "sha256": hashlib.sha256(rom).hexdigest(),
         "assembler_pin": "DASM 2.20.14.1", "enemy_slots": 4,
-        "prototype_display_cap": 2 if display else 3, "display_test": display,
-        "combat_difficulty": "static fixtures" if display else "table-driven levels; cap of three with bounded vertical sprite reuse",
+        "prototype_display_cap": 2 if display else 4, "display_test": display,
+        "arena_first_frame_line": sym["ARENA_START_LINE"],
+        "combat_difficulty": "static fixtures" if display else "table-driven waves with completion clears; cap of four with bounded vertical sprite reuse",
         "levels": None if display else manifest["levels"],
         "bank_bytes_before_tail": [sym[f"Bank{bank}End"] - 0xf000 for bank in (0, 1)],
         "bank_headroom_before_tail": [0xff80 - sym[f"Bank{bank}End"] for bank in (0, 1)],
@@ -64,7 +76,17 @@ def check(display=False):
         "enemy_burst_updates": sym["ENEMY_BURST_FRAMES"],
         "immunity_feedback_updates": sym["IMMUNE_FLASH_FRAMES"],
         "player_hit_flash_updates": sym["PLAYER_HIT_FRAMES"],
+        "wave_completion": None if display else {"cue_updates": sym["LEVEL_BREAK_FRAMES"],
+            "effect": "full green bar, survivor bursts, yellow flashes, clear sound",
+            "requires_full_health": False, "extra_score": 0},
+        "health_recovery": None if display else {"score_interval": 1000, "hp": 1,
+            "hp_cap": sym["START_HP"], "cue_updates": 32,
+            "at_full_hp": "clear surviving enemies; quota credit without extra score",
+            "flash_color": manifest["tuning"]["colors"]["health_bonus"],
+            "clear_flash_color": manifest["tuning"]["colors"]["clear_bonus"]},
+        "level_background_colors": None if display else manifest["tuning"]["level_background_colors"],
         "audio": {"beam_updates": None if display else manifest["tuning"]["beam_sound_frames"],
+                  "fast_approach": None if display else json.loads((ROOT / "config/audio.json").read_text())["fast_approach"],
                   "events": [] if display else [
                       {"name": sound["name"], "priority": index,
                        "updates": sum(segment[0] for segment in sound["segments"])}

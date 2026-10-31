@@ -1,6 +1,6 @@
 # Zero Swarm → Atari 2600: cuts for a playable version
 
-Reviewed 2026-10-26 against `../res`, commit `fb68a689d3fa6346696dd2310e5dd3d167c065a1`. The combat prototype now permits three enemies from level 2; [kernel measurements](KERNEL_TIMING.md) record its timing and remaining limits.
+Reviewed 2026-10-26 against `../res`, commit `fb68a689d3fa6346696dd2310e5dd3d167c065a1`. The combat prototype now permits four enemies from level 2; [kernel measurements](KERNEL_TIMING.md) record its timing and remaining limits.
 
 The [implementation specification](IMPLEMENTATION_SPEC.md) defines the native code architecture, game rules, level data, resource budgets, and acceptance tests for this baseline.
 
@@ -33,8 +33,8 @@ There are no stacked gradient lines or automatic repeat shots.
 | Sweeping filled sectors, lingering trails, transparency, and accumulated effects | One beam shot, with a short automatic cosmetic fade | Removes overlapping graphics and direction history without sacrificing directional firing. |
 | Hold-to-charge bomb, growing charge circle, and compression animation | One bomb strength, fired on button press | Simplifies input and keeps the bomb immediate. Charging is technically plausible, but unnecessary for the first game. |
 | The 24-ring bomb sequence and smooth circular outlines | One coarse outline expanding through four sizes, a noise burst, and immediate local damage | Precomputed outlines share alternate frames with the beam; no accumulated rings or trails. |
-| Shifters, reflectors, reflected shots, and free movement | Triangles, squares, and a blue diamond sharing straight approach lanes, with type-specific speed and health | Keeps weapon choice and enemy variety without extra projectiles or movement off the firing lanes. Shifters and reflectors are only design intentions in the checkout. |
-| XP, weapon upgrades, per-type statistics, reports, and elaborate screens | Score, five health marks, bomb-ready indicator, and game over | Focuses the game on survival. These systems are scope cuts, not claims that counters or menus are impossible on Atari. |
+| Shifters, reflected projectiles, and free movement | Triangles, squares, a blue diamond, and a retaliating hexagon sharing straight approach lanes | Keeps weapon choice and enemy variety without extra projectiles or movement off the firing lanes. The hexagon's beam retaliation applies immediate player damage; shifters and moving reflected shots remain cut. |
+| XP, weapon upgrades, per-type statistics, reports, and elaborate screens | Score, five health marks, level, wave-progress bar, and game over | Focuses the game on survival. These systems are scope cuts, not claims that counters or menus are impossible on Atari. |
 | Music and decorative background animation | Brief attack, hit, and death sounds on a plain arena | Attack, rejection, hit, destruction, player-damage, and game-over cues are implemented. Music remains outside scope. |
 
 The controller requires discrete aiming, and the original visual presentation needs substantial reduction. Removing charge, upgrades, or advanced enemy behaviors is a recommendation to contain scope and display demands; their absence is not individually required by the hardware.
@@ -50,7 +50,7 @@ Target rules, including the enemy revision agreed on 2026-10-27; numerical tunin
 - Bombs deal one damage to each eligible enemy inside a fixed radius around the player. One-health targets die; tougher targets retain their remaining health. The expanding ring does not apply extra hits.
 - Press the button once to detonate; holding it does not repeat. Use a short cooldown, initially around one second, and an obvious ready indicator. This cooldown is a new balancing proposal.
 - Beam shots and bombs can be triggered together. The shot's graphic alternates with the expanding ring, but its one damage event is processed even on a ring display frame.
-- An enemy reaching the center is removed and costs one player health point, except the small magenta triangle, which deals two. Start at five HP, matching the source's initial value; health cannot fall below zero.
+- An enemy reaching the center is removed and costs one player health point, except the small magenta triangle, which deals two. Start at five HP, matching the source's initial value; health cannot fall below zero. Each crossed 1,000 points restores one HP up to five, with two cyan screen flashes and a rising chime. At full health, the same milestone clears all surviving enemies instead, with yellow flashes and a descending explosion sound, wave progress, and no extra score. Fatal damage takes priority.
 - Kills increase score and advance a level's kill quota. Begin with a two-enemy cap; later levels can raise that cap, shorten spawn delays, or increase approach speed within tested limits. At zero HP, show game over; RESET starts again.
 
 Early challenge comes from switching direction and timing the bomb. Later levels should add crowd management through higher simultaneous enemy counts. The compromise is a measured, bounded swarm rather than unrestricted density.
@@ -68,10 +68,23 @@ These are adaptation rules, not behavior recovered from a completed original gam
 | Standard square | Existing pink square | Bomb only | 1 | Steady approach speed |
 | Armored square | Larger square with a visible damaged state | Bomb only | 2 | Slow enough to allow two separate bombs before contact |
 | Blue diamond | Blue diamond silhouette | Beam and bomb | 3 initially; tunable | Accelerates as distance to the turret decreases; capped below the fast triangle |
+| Fast square | Amber/orange normal-sized square | Bomb only | 1 | 1.5× normal square speed; introduced in level 6 |
+| Hexagon | Cyan, flat-topped six-sided silhouette | Bomb only; beam costs the player 1 HP | 1 | Standard speed; introduced in level 8 |
 
 The small magenta triangle still has only one health and dies to one beam hit,
 but deals two damage to the player on contact. All other types deal one contact
 damage, regardless of their own remaining health.
+
+The hexagon retaliates once per fresh beam shot on its lane, using the player's
+red damage flash and a distinct electrical rejection buzz alongside enemy immunity feedback. It survives
+the shot. Holding the stick or the fading beam causes no further damage. One
+in-range bomb defeats it; bomb resolution precedes the beam, so a simultaneous
+successful bomb prevents retaliation. Contact damage is separate. Full-health
+score clears remove hexagons safely. Hexagons stay filled at every distance;
+the bomb ring supplies the range guide.
+
+The new types replace some late-level square spawns without changing spawn
+intervals, quotas, the four-enemy limit, or the two-bomb-only-enemy cap.
 
 The armored square takes one damage per detonation and remains immune to beam
 shots. A nonlethal hit changes its appearance; only the
@@ -94,21 +107,22 @@ misses, and out-of-range bombs do not trigger the immunity cue. Pulse color and
 duration need visual playtesting.
 
 Player damage flashes the background red behind both the HUD and arena, fading
-to black over 12 updates. This also plays on fatal damage; reset clears it.
+over 12 updates before restoring the current level color. This also plays on
+fatal damage; reset clears it.
 The visual effect does not pause movement or prevent further contact damage.
 
-Introduce variants while retaining the validated two-enemy display cap, then
-use the level table to introduce them gradually. Increasing the number of enemy
-types is separate from increasing the number visible at once.
+The initial variant tests used the two-enemy display cap. The current level
+table introduces types gradually while raising the simultaneous count to four
+from level 2. Enemy variety and visible count remain separate tuning choices.
 
 ## Increasing enemy counts in later levels
 
-The progression goal is more enemies on screen, while retaining the same beam and bomb controls. Introduce the agreed variants before increasing simultaneous enemy counts; shifters and reflectors remain outside scope.
+The progression goal is sustained pressure from more enemies on screen, while retaining the same beam and bomb controls. Keep replacements arriving within each wave; celebrate a completed wave with a brief all-clear explosion. Shifters and reflectors remain outside scope.
 
-- Opening levels use a cap of two active enemies, giving the player time to learn direction changes and bomb range.
-- After the baseline works, test three active enemies, then four. Each count is a validation target, not a promised capability or a fixed level assignment.
+- Level 1 uses a cap of two active enemies, giving the player time to learn direction changes and bomb range.
+- Three- and four-enemy validation now supports a cap of four from level 2, using two alternating pairs of vertically separated sprites.
 - Promote a higher cap into the level progression only when worst-case overlap remains readable, frame timing stays stable, and controls and hit detection remain reliable.
-- Keep enemy cap, spawn interval, approach speed, enemy mix, and kill quota in a small level table. Avoid increasing all difficulty settings at once; tune the first level with each new cap separately.
+- Keep enemy cap, spawn interval, approach speed, and enemy mix in a small level table; grow the kill quota separately. Avoid increasing all difficulty settings at once; tune the first level with each new cap separately.
 - Once the tested display limit is reached, further levels can vary timing, speed, and enemy mix without exceeding that limit. Preserve enough time for bomb-only enemies to be handled with the cooldown.
 
 Implement enemy storage and update loops as a fixed-size pool with a level-specific active cap. Keep the compiled pool capacity separate from the current level cap, so increasing a tested limit does not require rewriting two hard-coded enemy cases. Size the pool to the RAM budget of each build; this does not assume unlimited spare slots.
@@ -127,7 +141,7 @@ A bomb's damage check can be small: compare each enemy's distance from the cente
 
 ## The beam is the one rendering feature to protect
 
-The renderer uses the one-color-clock ball for vertical and diagonal rays, repositioning it each scanline for diagonals. Horizontal rays use the playfield at two scanlines tall. Each ray has one uniform color that changes over time. During a bomb, alternate frames draw its expanding playfield outline. Draw the turret and enemies with player graphics. Keep the HUD in a separate strip and the arena background black.
+The renderer uses the one-color-clock ball for vertical and diagonal rays, repositioning it each scanline for diagonals. Horizontal rays use the playfield at two scanlines tall. Each ray has one uniform color that changes over time. During a bomb, alternate frames draw its expanding playfield outline. Draw the turret and enemies with player graphics. Keep the HUD in a separate strip and a dark arena background that changes with each level, temporarily overridden by red player-damage feedback.
 
 The playfield is coarse and normally repeats or mirrors its two halves; independent halves need timed updates. A missile alone cannot be stretched into an arbitrary full-width horizontal ray. See the playfield and missile sections of the [Atari reference](https://alienbill.com/2600/101/docs/stella.html).
 
@@ -164,16 +178,32 @@ If this version does not fit cleanly, cut in this order: decorative indicators a
 
 Preserve the eight-way beam and bomb button throughout those experiments. After testing the accepted ring/beam experiment and completing the reduced game, prioritize higher enemy counts for later levels before further visual effects. Charge bombs, sweep effects, shifters, reflectors, XP, and weapon upgrades remain outside the initial scope; level progression is included.
 
-The playable prototype now implements all five variants, one beam shot per
+The playable prototype now implements all seven variants, one beam shot per
 joystick flick, automatic shot fades, the revised vulnerabilities, vivid immunity
 and hit feedback, red player-damage flashes, attack/combat/game-over sounds,
 health, score, destruction bursts, and restart. Eight difficulty rows introduce
 the variants across the first four levels, then increase spawn frequency and
-diamond weight. Kill quotas, one-second level breaks, and an `LV 01..99` HUD are
-implemented, retaining health and score between levels. Level 1 allows two enemies;
-level 2 onward allows three using vertical sprite reuse and approach-spacing
-checks. Bomb recharge is 30 updates (about half a second). At most one bomb-only
-enemy is active. CPU/register checks and 22 inspected headless Stella captures
-cover the new density kernel. Level balancing, hardware readability, and
-four-enemy layouts still need validation. The earlier static display fixtures and held-beam
+diamond weight. The upper HUD shows score, health, and `LV01` for the level,
+with a thin filling progress bar below the arena.
+The bar appears during play and wave completion; title/game-over screens hide it.
+Each wave keeps a dark background from an eight-color cycle, repeating at level 9;
+foreground colors stay unchanged, and red player-damage feedback temporarily
+overrides the level color before restoring it.
+Require 8 defeats on level 1, then four more each level, capped at 64 from
+level 15 onward. This continues past the final enemy-mix row at level 8.
+At the kill quota, hold the fully green bar and clear surviving enemies with
+bursts, two yellow flashes, and the existing all-clear sound. This works at any
+remaining HP, grants no extra points or health, and takes 32 updates before the
+next level begins. Finish nonfatal damage feedback first; death wins over
+completion. Health and score carry over, and the 1,000-point rewards remain. Level 1 allows two enemies;
+level 2 onward allows four using vertical sprite reuse and approach-spacing
+checks. Spawns are due every 24 updates initially, 12 from level 2, and eight
+from level 5; unsafe placements retry after two updates. Bomb recharge remains
+30 updates (about half a second). Wave 1 allows one bomb-only square; later waves
+allow two bomb-only enemies together, including fast squares and hexagons,
+retaining the 72-update spawn spacing.
+CPU/register tests cover all 2,401 four-target type combinations and natural
+crowding; current headless Stella captures cover the HUD and both draw phases.
+Level balancing and hardware readability still need playtesting. More than
+four slots would need a revised RAM map and display schedule. The earlier static display fixtures and held-beam
 behavior remain available in a separate diagnostic ROM.

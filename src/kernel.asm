@@ -1,4 +1,8 @@
+; SPDX-FileCopyrightText: 2026 mastergray
+; SPDX-License-Identifier: GPL-3.0-only
+
 ArenaFrameStart:
+    IF DISPLAY_TEST
     ldx #7
 SeparatorLoop:
     sta WSYNC
@@ -8,6 +12,13 @@ SeparatorLoop:
     sta PF2
     dex
     bne SeparatorLoop
+    ELSE
+    ; Entry at cycle 12 of visible line 29. A=0; clear the one-line separator.
+    sta PF0
+    sta PF1
+    sta PF2
+    ldx #0
+    ENDIF
     lda ArenaColor
     sta COLUPF
     lda #COLOR_BACKGROUND

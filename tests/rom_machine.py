@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 mastergray
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Execute the real cartridge on py65 with a small, explicitly limited VCS bus.
 
 This harness checks CPU state, bank switching, and scanline write deadlines.

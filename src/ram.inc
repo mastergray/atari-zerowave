@@ -1,3 +1,6 @@
+; SPDX-FileCopyrightText: 2026 mastergray
+; SPDX-License-Identifier: GPL-3.0-only
+
 ; Fixed RAM reservations from IMPLEMENTATION_SPEC.md. No RAM outside $80..$FF.
     SEG.U RAM
     ORG $80
@@ -59,6 +62,7 @@ BeamRight1      ds 2
 EnemySprite     ds 2
 SelectedSlot    ds 1
 HudColor        ds 1
+LevelBackground = HudColor ; gameplay reuses the diagnostic HUD-ready color byte
 ArenaColor      ds 1
 DisplayPattern  ds 1
 BeamFadeTimer   ds 1
@@ -74,6 +78,8 @@ LevelTypeOffset = RenderReserved
 ; HUD buffers live only during display. Logic scratch aliases their storage.
 HudScoreLeft    ds 5
 HudScoreRight   ds 5
+HudProgress = HudScoreRight ; after score rows finish, five progress PF masks
+ProgressQuota = HudProgress+4 ; denominator scratch until final bar masks replace it
 HudStatus1      ds 2
 HudStatus2      ds 2
 BestAge         ds 1
@@ -84,6 +90,7 @@ PressedButtons = HudScoreLeft+1
 FreeSlot       = HudScoreLeft+2
 UsedLanes      = HudScoreLeft+3
 CandidateLane  = HudScoreLeft+4
+ScoreBeforeCombat = HudScoreRight+4 ; combat/scan preserve this until HUD preparation
 CoordDX        = HudScoreRight
 CoordDY        = HudScoreRight+1
 DrawableCount  = Temp

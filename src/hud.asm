@@ -1,3 +1,6 @@
+; SPDX-FileCopyrightText: 2026 mastergray
+; SPDX-License-Identifier: GPL-3.0-only
+
 ; Ten score row bytes, health masks and status pointers. Uses display-only
 ; scratch after input history is committed. A/X/Y clobbered, <700 cycles.
 PrepareHud:
@@ -112,4 +115,48 @@ PrepareHud:
     iny
     cpy #5
     bne .ones
+    rts
+
+; Top score rows are finished. Reuse the five right-score bytes for the bar.
+; Three binary division steps compute floor(8 * completed / quota).
+PrepareProgress:
+    SUBROUTINE
+    ldx #0
+    stx Temp
+    lda GameMode
+    and #1
+    beq .progressMasks
+    jsr CalculateQuota
+    sta ProgressQuota
+    sec
+    sbc KillsRemaining
+    bcc .progressMasks    ; debugger counts beyond this wave show an empty bar
+    ldx #8
+    cmp ProgressQuota
+    beq .progressMasks
+    ldx #3
+.progressBit:
+    asl
+    bcs .subtractQuota
+    cmp ProgressQuota
+    bcc .appendBit
+.subtractQuota:
+    sbc ProgressQuota
+    sec
+.appendBit:
+    rol Temp
+    dex
+    bne .progressBit
+    ldx Temp
+.progressMasks:
+    lda ProgressLeft1,x
+    sta HudProgress
+    lda ProgressLeft2,x
+    sta HudProgress+1
+    lda ProgressRight0,x
+    sta HudProgress+2
+    lda ProgressRight1,x
+    sta HudProgress+3
+    lda ProgressRight2,x
+    sta HudProgress+4
     rts

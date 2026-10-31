@@ -1,14 +1,18 @@
+# SPDX-FileCopyrightText: 2026 mastergray
+# SPDX-License-Identifier: GPL-3.0-only
+
 PYTHON ?= python3
 DASM ?= .tools/dasm-src/src/dasm
 STELLA ?= stella
 STELLA_AUDIO ?= -audio.enabled 1
 ROM := build/atari-zerowave.bin
 DISPLAY_ROM := build/atari-zerowave-display.bin
+DIST_ROM := dist/zerowave.bin
 GENERATED := build/generated/assets.stamp
 SOURCE := $(wildcard src/*.asm src/*.inc) vendor/dasm/vcs.h
 
-.PHONY: all bootstrap check test run run-display debug stella-check clean
-all: $(ROM) $(DISPLAY_ROM)
+.PHONY: all bootstrap dist check test run run-display debug stella-check clean
+all: $(ROM) $(DISPLAY_ROM) dist
 
 bootstrap:
 	$(PYTHON) tools/bootstrap.py
@@ -24,6 +28,13 @@ $(ROM): $(SOURCE) $(GENERATED)
 $(DISPLAY_ROM): $(SOURCE) $(GENERATED)
 	$(DASM) src/main.asm -DDISPLAY_TEST=1 -Isrc -Ivendor/dasm -Ibuild/generated -f3 -o$(DISPLAY_ROM) -lbuild/atari-zerowave-display.lst -sbuild/atari-zerowave-display.sym
 	$(PYTHON) tools/check_rom.py --display
+
+$(DIST_ROM): $(ROM)
+	mkdir -p "$(@D)"
+	cp "$<" "$@"
+
+dist: $(DIST_ROM) LICENSE NOTICE tools/package_dist.py
+	$(PYTHON) tools/package_dist.py
 
 check: all
 	$(PYTHON) tools/check_rom.py
@@ -46,6 +57,7 @@ stella-check: all
 	$(PYTHON) tools/verify_combat_stella.py
 	$(PYTHON) tools/verify_levels_stella.py
 	$(PYTHON) tools/verify_density_stella.py
+	$(PYTHON) tools/verify_variants_stella.py
 
 clean:
-	$(PYTHON) -c 'import pathlib, shutil; p=pathlib.Path("build"); shutil.rmtree(p) if p.is_dir() else None'
+	$(PYTHON) -c 'import pathlib, shutil; [shutil.rmtree(p) for p in map(pathlib.Path, ("build", "dist")) if p.is_dir()]'

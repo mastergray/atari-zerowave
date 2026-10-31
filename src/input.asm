@@ -1,3 +1,6 @@
+; SPDX-FileCopyrightText: 2026 mastergray
+; SPDX-License-Identifier: GPL-3.0-only
+
 ; Sample controls. Clobbers A/X; outputs current/pressed bits and Direction.
 ; Bit 7 = fire, bit 1 = SELECT, bit 0 = RESET. At most 160 cycles.
 ; Gameplay emits one BeamEvent per center-to-direction edge.

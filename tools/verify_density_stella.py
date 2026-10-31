@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Check the three-enemy kernel in Stella, including real HMOVE pixel output."""
+# SPDX-FileCopyrightText: 2026 mastergray
+# SPDX-License-Identifier: GPL-3.0-only
+
+"""Check the four-enemy kernel in Stella, including real HMOVE pixel output."""
 import json
 from check_rom import symbols
 from stella_session import ROOT, run_stella
@@ -29,7 +32,7 @@ def main():
     poke('LevelNumber', 2)
     poke('GameMode', 3)
     poke('SpawnTimer', 1)
-    frame(242)
+    frame(122)
     capture('natural-level-02-a')
     frame()
     capture('natural-level-02-b')
@@ -70,11 +73,33 @@ def main():
         poke('BombTimer', 0)
         poke('BombCooldown', 0)
         poke('BeamFadeTimer', 0)
+    # Both phases now contain a pair: four targets at the tight near-center gap.
+    for slot, lane, radius in ((0,7,24),(1,1,24),(2,3,9),(3,5,9)):
+        poke('EnemyFlags', 0xa0 | lane, slot)
+        poke('EnemyRadiusHi', radius, slot)
+        poke('EnemyRadiusLo', 0, slot)
+        poke('EnemyHealth', 3, slot)
+        poke('EnemyVisual', 0, slot)
+    for effect in ('neutral', 'beam', 'ring', 'immune', 'burst'):
+        poke('SpawnTimer', 255)
+        if effect == 'beam':
+            commands.extend(['joy0up #0', 'joy0left #0'])
+        if effect == 'ring':
+            commands.append('joy0fire #0')
+        if effect in ('immune', 'burst'):
+            for slot in range(4):
+                poke('EnemyVisual', 18, slot)
+                if effect == 'burst':
+                    poke('EnemyFlags', 0, slot)
+        frame(2)
+        capture(f'four-{effect}-a')
+        frame()
+        capture(f'four-{effect}-b')
     run, values, snapshots, transcript = run_stella('atari-zerowave', commands, labels, advances)
     columns = {name: values('*' + name) for name in fields}
     states = {label: {name: columns[name][i] for name in fields} for i, label in enumerate(labels)}
     assert all(not state['FramePhase'] & 0x80 for state in states.values()), states
-    assert states['natural-level-02-a']['ActiveCount'] == 3, states
+    assert states['natural-level-02-a']['ActiveCount'] == 4, states
     report = dict(directory=str(run.relative_to(ROOT)), session=transcript.name,
                   snapshots=dict(zip(labels, [p.name for p in snapshots])), states=states,
                   frame_lines=262, cycles_per_frame=19912)

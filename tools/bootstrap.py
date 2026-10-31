@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 mastergray
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Build a pinned assembler and obtain the test CPU locally, without system changes."""
 from pathlib import Path
 import subprocess

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 mastergray
+# SPDX-License-Identifier: GPL-3.0-only
+
 import importlib.util
 import json
 from pathlib import Path
@@ -195,7 +198,7 @@ class CartridgeTests(unittest.TestCase):
         self.assertEqual(machine.bus.tia[0x1f], 0)  # no residual ball on ring/neutral frames
         scanlines = [[] for _ in range(160)]
         for cycle, register, value in machine.bus.events:
-            line = (cycle - origin) // 76 - 72
+            line = (cycle - origin) // 76 - machine.sym["ARENA_START_LINE"]
             if 0 <= line < 160 and register in (0x0d, 0x0e, 0x0f):
                 scanlines[line].append((cycle % 76, register, value))
         schedule = [(3, 0x0d), (11, 0x0e), (27, 0x0f), (42, 0x0d), (50, 0x0e), (53, 0x0f)]
@@ -216,10 +219,10 @@ class CartridgeTests(unittest.TestCase):
         stationary = None
         lines = [[] for _ in range(160)]
         for cycle, register, value in machine.bus.events:
-            line = (cycle - origin) // 76 - 72
+            line = (cycle - origin) // 76 - machine.sym["ARENA_START_LINE"]
             if 0 <= line < 160:
                 lines[line].append((cycle % 76, register, value))
-            elif 0 <= cycle - origin < 72 * 76 and register == 0x2b:
+            elif 0 <= cycle - origin < machine.sym["ARENA_START_LINE"] * 76 and register == 0x2b:
                 stationary = True  # separator clears all five motion registers
             elif stationary and register in (0x20, 0x21, 0x24):
                 stationary = False
@@ -376,7 +379,7 @@ class CartridgeTests(unittest.TestCase):
         writes = []
         color = None
         for cycle, register, value in machine.bus.events:
-            line = (cycle - origin) // 76 - 72
+            line = (cycle - origin) // 76 - machine.sym["ARENA_START_LINE"]
             if register == 0x08:
                 # The only arena color setup happens before its first scanline.
                 self.assertFalse(0 <= line < 160, "Unexpected scanline color gradient")

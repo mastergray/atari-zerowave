@@ -1,3 +1,6 @@
+; SPDX-FileCopyrightText: 2026 mastergray
+; SPDX-License-Identifier: GPL-3.0-only
+
 ; Player 1 is reused for a second, vertically separated enemy. Between the
 ; sprites, bounded HMOVE steps reposition it without interrupting beam/ring data.
 ; Only the first physical line writes player graphics; TIA retains both rows.
@@ -150,8 +153,57 @@ ThinBeamLastPair:
     nop                   ; motion writes must follow HMOVE by at least 24 cycles
     sta HMBL
 ArenaDone:
+    lda GameMode
+    and #1                ; PLAY or LEVEL_BREAK; hide both bar rows otherwise
+    bne ProgressFooter
     lda #0
+    sta WSYNC             ; visible line 190: empty footer on title/game over
+    sta PF0
+    sta PF1
+    sta PF2
     sta ENABL
+    sta GRP0
+    sta GRP1
+    sta WSYNC             ; visible line 191
+    jmp FooterDone
+ProgressFooter:
+    lda #0
+    sta WSYNC             ; visible line 190: full wave rail
+    sta PF0               ; 3
+    sta ENABL             ; 6
+    sta GRP0              ; 9
+    sta GRP1              ; 12
+    lda #$04
+    sta COLUPF            ; 17, dim gray rail
+    lda #$ff
+    sta PF1               ; 22
+    sta PF2               ; 25
+    lda #$f0
+    sta PF0               ; 30, left PF0 has finished
+    REPEAT 12
+    nop
+    REPEND
+    lda #$0f
+    sta PF2               ; 59, right end of the rail
+    sta WSYNC             ; visible line 191: green completed portion
+    lda #0
+    sta PF0               ; 5
+    lda #COLOR_READY
+    sta COLUPF            ; 10
+    lda HudProgress
+    sta PF1               ; 16
+    lda HudProgress+1
+    sta PF2               ; 22
+    REPEAT 6
+    nop
+    REPEND
+    lda HudProgress+2
+    sta PF0               ; 40
+    lda HudProgress+3
+    sta PF1               ; 46
+    lda HudProgress+4
+    sta PF2               ; 52
+FooterDone:
     lda #2
     sta WSYNC
     sta VBLANK

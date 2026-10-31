@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 mastergray
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Run deterministic display scenarios in Stella's real TIA implementation.
 
 Run with a display, or: xvfb-run -a python3 tools/verify_stella.py

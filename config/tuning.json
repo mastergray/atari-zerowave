@@ -18,6 +18,7 @@
   "immune_flash_frames": 18,
   "player_hit_stage_frames": 3,
   "player_hit_colors": [72, 70, 68, 66],
+  "level_background_colors": [0, 144, 176, 96, 208, 32, 128, 2],
   "diamond_mid_radius": 40,
   "diamond_near_radius": 24,
   "diamond_mid_speed": 48,
@@ -27,7 +28,9 @@
     {"id": 1, "name": "fast_triangle", "health": 1, "speed": 80, "damage": 2, "weapons": 1, "score": 20, "color": 94, "sprite": 1},
     {"id": 2, "name": "diamond", "health": 3, "speed": 32, "damage": 1, "weapons": 3, "score": 40, "color": 142, "sprite": 6},
     {"id": 4, "name": "square", "health": 1, "speed": 32, "damage": 1, "weapons": 2, "score": 25, "color": 78, "sprite": 2},
-    {"id": 5, "name": "armored_square", "health": 2, "speed": 20, "damage": 1, "weapons": 2, "score": 50, "color": 78, "sprite": 4}
+    {"id": 5, "name": "armored_square", "health": 2, "speed": 20, "damage": 1, "weapons": 2, "score": 50, "color": 78, "sprite": 4},
+    {"id": 6, "name": "fast_square", "health": 1, "speed": 48, "damage": 1, "weapons": 2, "score": 35, "color": 46, "sprite": 2},
+    {"id": 7, "name": "hexagon", "health": 1, "speed": 32, "damage": 1, "weapons": 2, "score": 60, "color": 174, "sprite": 7}
   ],
   "start_hp": 5,
   "square_spawn_gap": 72,
@@ -39,6 +42,8 @@
     "ready": 198,
     "waiting": 38,
     "background": 0,
+    "health_bonus": 186,
+    "clear_bonus": 26,
     "bomb": 46,
     "immune": 30,
     "immune_accent": 46,

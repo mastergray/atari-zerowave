@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 mastergray
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Exercise the playable cartridge in Stella, including natural spawns and combat."""
 import argparse
 import json

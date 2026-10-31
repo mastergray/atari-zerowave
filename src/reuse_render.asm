@@ -1,3 +1,6 @@
+; SPDX-FileCopyrightText: 2026 mastergray
+; SPDX-License-Identifier: GPL-3.0-only
+
 ; Stable phases pair slots 0/2 and 1/3. Empty phases borrow the other phase.
 ; The spawner guarantees separation for each pair's entire remaining life.
     lda #0

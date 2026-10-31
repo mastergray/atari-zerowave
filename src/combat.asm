@@ -1,12 +1,14 @@
-; Per slot: bomb event, beam shot event, then surviving contact. All slots
-; resolve before mode changes. A/X/Y and CombatType clobbered.
+; SPDX-FileCopyrightText: 2026 mastergray
+; SPDX-License-Identifier: GPL-3.0-only
+
+; Per slot: bomb event, beam shot event, then surviving contact. Slots count
+; down to save loop cycles; all resolve before mode changes. A/X/Y and CombatType clobbered.
 ResolveCombat:
     SUBROUTINE
-    ldx #0
+    ldx #MAX_ENEMIES-1
 .slot:
     lda EnemyFlags,x
-    bmi .active
-    jmp .next
+    bpl .next
 .active:
     and #TYPE_MASK
     lsr
@@ -59,6 +61,20 @@ ResolveCombat:
     bne .next
 .touch:
     ldy CombatType
+    jsr DamagePlayer
+    lda #0
+    sta EnemyFlags,x
+    sta EnemyHealth,x
+    sta EnemyVisual,x
+.next:
+    dex
+    bpl .slot
+.done:
+    rts
+
+; Contact or hexagon retaliation. Y=type index selects damage. X preserved.
+DamagePlayer:
+    SUBROUTINE
     lda Health
     sec
     sbc TypeDamage,y
@@ -67,18 +83,11 @@ ResolveCombat:
 .health:
     sta Health
     lda #PLAYER_HIT_FRAMES
-    sta PlayerHitTimer     ; repeated contacts in this update share one flash
+    sta PlayerHitTimer
     lda #SFX_PLAYER_HIT
-    jsr RequestSound
-    lda #0
-    sta EnemyFlags,x
-    sta EnemyHealth,x
-    sta EnemyVisual,x
-.next:
-    inx
-    cpx #MAX_ENEMIES
-    beq .done
-    jmp .slot
+    cmp SoundRequest      ; preserve a hexagon cue from any earlier slot
+    bcc .done
+    sta SoundRequest
 .done:
     rts
 
@@ -96,14 +105,17 @@ HitEnemy:
     ldy CombatType
     lda TypeScore,y
     jsr AwardScore
-    lda #0
+    lda EnemyFlags,x
+    and #7
+    ora #$40             ; inactive, with lane retained for burst positioning in VBLANK
     sta EnemyFlags,x
     lda #ENEMY_BURST_FRAMES
     sta EnemyVisual,x
     lda #SFX_KILL
     jmp RequestSound
 
-; Immunity flash and sound request. A clobbered; hit flash wins. <40 cycles.
+; Immunity flash; hit flash wins. A/Y clobbered, X preserved. A hexagon is
+; immune only to beams, so this path retaliates after a bomb could kill it.
 ImmuneEnemy:
     SUBROUTINE
     lda EnemyVisual,x
@@ -111,6 +123,13 @@ ImmuneEnemy:
     lda #IMMUNE_FLASH_FRAMES
     sta EnemyVisual,x
 .done:
+    ldy CombatType
+    cpy #(TYPE_HEXAGON >> 4)
+    bne .ordinary
+    lda #SFX_HEX_REJECT
+    sta SoundRequest      ; highest combat cue; death is resolved afterward
+    jmp DamagePlayer      ; one fresh shot; damage keeps the more specific cue
+.ordinary:
     lda #SFX_IMMUNE
     jmp RequestSound
 

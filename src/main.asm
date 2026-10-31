@@ -1,3 +1,6 @@
+; SPDX-FileCopyrightText: 2026 mastergray
+; SPDX-License-Identifier: GPL-3.0-only
+
     processor 6502
     IFNCONST DISPLAY_TEST
 DISPLAY_TEST = 0
@@ -23,6 +26,12 @@ DISPLAY_TEST = 0
     jmp HudLoop
     .byte $2c,$f9,$ff       ; ArenaEntry: BIT $FFF9
     jmp ArenaFrameStart
+    IF DISPLAY_TEST = 0
+    include "shared_hud.inc" ; page-safe font/progress data in matching tails
+    ENDIF
+    IF * > $fff8
+        ERR
+    ENDIF
     ENDM
 ResetEntry   = $ff80
 DisplayEntry = $ff86
@@ -31,6 +40,10 @@ PrepareEntry = $ff92
 RenderEntry  = $ff98
 HudEntry     = $ff9e
 ArenaEntry   = $ffa4
+LevelDigitOnes = $ffaa
+ProgressRight1 = $ffdc
+ProgressRight2 = $ffe5
+DigitOffsets = $ffee
 
     SEG ROM
     ORG $0000
