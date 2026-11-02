@@ -21,12 +21,18 @@ Thumbs.db
 # Local toolchain, generated ROMs, emulator state, and Python caches
 .tools/
 build/
-dist/
 .venv/
 __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
+
+# Version the complete release package, excluding temporary packaging files.
+/dist/*
+!/dist/zerowave.bin
+!/dist/zerowave-source.tar.gz
+!/dist/LICENSE
+!/dist/NOTICE
 
 # Independent source-game checkout; pinned in docs/PORT_OUTLINE.md
 res/

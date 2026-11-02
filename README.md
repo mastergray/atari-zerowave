@@ -33,14 +33,19 @@ make dist       # Package the playable ROM, matching source, and GPL notices
 make run        # Open Stella with NTSC/F8, joystick settings, and audio enabled
 ```
 
-The playable ROM for copying or sharing is `dist/zerowave.bin`. `make dist`
+The playable ROM for copying or sharing is [dist/zerowave.bin](dist/zerowave.bin).
+All four release files in [dist/](dist/) are versioned, so a checkout includes
+the playable ROM, matching source archive, license, and notices. `make dist`
 builds it on its own; normal builds (`make` or `make all`) also keep this copy
 up to date. `dist/` also contains `LICENSE`, `NOTICE`, and
 `zerowave-source.tar.gz`, built from the current working tree so local
-changes are included. Share the matching source archive and notices with the ROM.
+changes are included. Packaging is reproducible: unchanged source produces the
+same archive, without timestamp-only Git changes. Commit the refreshed release
+files with source changes. Share the matching source archive and notices with the ROM.
 The development ROM remains in `build/` alongside symbols, assembly
 listing, and a checksum/bank-usage report. `make debug` opens Stella's debugger.
-`make clean` removes generated output under `build/` and `dist/`, including captures. Tool downloads
+`make clean` removes generated output under `build/`, including captures, and
+preserves the versioned `dist/` package. Tool downloads
 stay in `.tools/`; nothing is installed globally. A separately installed assembler
 can be selected with `make DASM=/path/to/dasm`.
 

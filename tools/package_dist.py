@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 """Package corresponding source from the working tree, including local changes."""
+import gzip
 from pathlib import Path
 import shutil
 import tarfile
@@ -28,12 +29,20 @@ def main():
     archive = destination / "zerowave-source.tar.gz"
     pending = archive.with_suffix(archive.suffix + ".tmp")
     try:
-        with tarfile.open(pending, "w:gz") as bundle:
-            for path in sorted(sources):
-                if path.is_symlink() or not path.is_file():
-                    raise ValueError(f"Expected a regular source file: {path}")
-                relative = path.relative_to(ROOT)
-                bundle.add(path, arcname=f"zerowave-source/{relative}", recursive=False)
+        # Tracked archives must not change merely because a build ran later or
+        # another checkout has different timestamps, ownership, or permissions.
+        with pending.open("wb") as output:
+            with gzip.GzipFile(filename="", mode="wb", fileobj=output, mtime=0) as compressed:
+                with tarfile.open(fileobj=compressed, mode="w", format=tarfile.USTAR_FORMAT) as bundle:
+                    for path in sorted(sources):
+                        if path.is_symlink() or not path.is_file():
+                            raise ValueError(f"Expected a regular source file: {path}")
+                        relative = path.relative_to(ROOT)
+                        info = tarfile.TarInfo(f"zerowave-source/{relative}")
+                        info.size = path.stat().st_size
+                        info.mode = 0o644
+                        with path.open("rb") as source:
+                            bundle.addfile(info, source)
         pending.replace(archive)
     finally:
         pending.unlink(missing_ok=True)

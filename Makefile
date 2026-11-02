@@ -61,4 +61,4 @@ stella-check: all
 	$(PYTHON) tools/verify_reinforced_stella.py
 
 clean:
-	$(PYTHON) -c 'import pathlib, shutil; [shutil.rmtree(p) for p in map(pathlib.Path, ("build", "dist")) if p.is_dir()]'
+	$(PYTHON) -c 'import pathlib, shutil; p = pathlib.Path("build"); shutil.rmtree(p) if p.is_dir() else None'
