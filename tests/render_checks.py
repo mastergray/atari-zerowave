@@ -17,6 +17,9 @@ def sprite(m, slot):
     flags, timer = m.value('EnemyFlags', slot), m.value('EnemyVisual', slot)
     kind = next(t for t in tuning['enemy_types'] if t['id'] == ((flags >> 4) & 7))
     graphic, color = kind['sprite'], kind['color']
+    reinforced = assets.load_levels()['reinforced_diamond']
+    if kind['id'] == 2 and m.value('EnemyHealth', slot) >= reinforced['health']:
+        color = reinforced['color']
     x = m.value('EnemyX', slot)
     if flags & 0x40 and kind['id'] != 7:
         if m.value('EnemyHealth', slot) == 1:

@@ -4,12 +4,13 @@ Implement the game defined in [PORT_OUTLINE.md](PORT_OUTLINE.md) as a native Ata
 
 The first playable build must support two active enemies. The implementation reserves four enemy slots and separates storage capacity from the current level's cap. Three- and four-enemy levels are enabled only after their display schedules pass the tests below. Controls and combat rules are requirements; tuning values are initial defaults that may change through playtesting.
 
-Implementation status (2026-10-30): the playable ROM includes one beam shot per
-joystick flick, all seven enemy variants, health, score, damage/immunity feedback,
+Implementation status (2026-11-01): the playable ROM includes one beam shot per
+joystick flick, nine enemy variants, health, score, damage/immunity feedback,
 destruction bursts, attack/combat sound cues, start/game-over/restart, and level
 quotas/transitions. See [play instructions](../README.md) and [measured kernel
-timing](KERNEL_TIMING.md). Eight difficulty rows introduce variants gradually,
-then adjust spawn timing and mix. Level 1 keeps two enemies; level 2 onward permits
+timing](KERNEL_TIMING.md). Eight early difficulty rows introduce variants gradually,
+followed by faster spawning at level 10, reinforced triangles at level 20, and
+reinforced diamonds at level 25. Level 1 keeps two enemies; level 2 onward permits
 four with vertical sprite reuse and approach-spacing checks. Bomb recharge is
 half a second. Completed waves get a brief all-clear celebration, replacements arrive rapidly within waves, and the
 HUD shows score, health, and level, with a filling progress bar below the arena. From wave 2, up to two
@@ -107,12 +108,12 @@ Game geometry uses an eight-way lane and a radial distance, not free Cartesian m
 | `HIT_FLASH_FRAMES` | 6 updates | White nonlethal enemy-hit flash |
 | `PLAYER_HIT_FRAMES` | 12 updates | Four red background shades, three updates each |
 | `level_background_colors` | 8 colors | Persistent dark backgrounds, indexed by `(decimal level - 1) % 8` |
-| `LEVEL_BREAK` | 60 updates | Pause after a cleared level |
+| `LEVEL_BREAK` | 32 updates | Celebration after a cleared level |
 | `SQUARE_SPAWN_GAP` | 72 updates | Minimum spacing between square spawns |
 
 Each active enemy subtracts its type's speed for its distance from its fixed-point distance once per update. Type speeds remain the same across the current level rows. Speeds are fractional-byte values, so `32` means `32/256` radial units per update. Saturate subtraction at zero; an underflow must never wrap an enemy to the outer rim.
 
-The current type speeds are 32/256 for standard triangles/squares and hexagons,
+The current type speeds are 32/256 for standard/reinforced triangles, standard squares, and hexagons,
 48/256 for orange squares, 80/256 for magenta triangles, and 20/256 for armored squares. Diamonds use 32/256 at radius
 40 or greater, 48/256 from 24 up to 40, and 64/256 below 24. Select the band from
 distance before movement; the magenta triangle remains fastest everywhere.
@@ -139,6 +140,8 @@ For radius comparisons, explicitly compare both bytes: `24.00` is inside the bom
 | Blue diamond | 3 | One damage per beam shot on matching lane | One damage per detonation | 1 | 40 |
 | Amber/orange fast square | 1 | No effect | One damage | 1 | 35 |
 | Cyan hexagon | 1 | Survives; player loses one HP | Defeated by one bomb | 1 | 60 |
+| Violet reinforced triangle (level 20) | 2 | One damage per matching shot | No effect | 1 | 30 |
+| Gold reinforced diamond (level 25) | 4 | One damage per matching shot | One damage per detonation | 1 | 40 |
 
 Diamond health and new score awards are provisional playtest values.
 
@@ -146,8 +149,8 @@ The beam pierces: each shot checks every eligible target on its latched lane,
 including updates when the beam graphic is omitted for a bomb ring. Squares do
 not block the ray. `BeamEvent` aliases the former `BeamEnabled` byte in the
 playable ROM; it is a one-update event, not a held-input gate. A visible fade
-never causes additional hits. Both
-triangle types die to one matching shot. A diamond loses one health per shot
+never causes additional hits. Green and magenta
+triangles die to one matching shot; violet triangles need two. A diamond loses one health per shot
 and requires separate center-to-direction movements for further beam damage.
 No per-enemy beam-hit interval is needed. An enemy entering or spawning into a
 fading beam after the event takes no damage from that old shot.
@@ -191,6 +194,21 @@ square loses its larger outline and becomes a normal-sized square after its
 first bomb, while remaining bomb-only and retaining its 50-point kill value.
 Its damaged state must remain distinguishable from the bomb-range fill cue.
 Reserve the existing destruction burst for the final hit.
+
+The reinforced triangle reuses the standard triangle silhouette at its normal
+speed, colored violet (`$6E`). It keeps that color after a nonlethal flash and
+retains one contact damage. Type ID 3 (`$30` in the packed flags) uses the last
+available type code; existing health and feedback arrays need no extra RAM.
+
+From level 25, new diamonds start with four HP and a gold color (`$1E`). A hit
+flashes white, then exposes the ordinary blue diamond with three HP. This is a
+health state of type 2, preserving its acceleration, weapon permissions, one
+contact damage, and 40-point score. Only diamonds can have four HP, so the
+renderer can select gold from health alone after selecting the diamond/hexagon
+sprite family. Damage/immunity feedback still overrides the base color.
+Four bombs cannot fit between bomb range and contact at the unchanged near
+speed and 30-update cooldown; the player must use some beam damage to defeat a
+full-health reinforced diamond before it arrives.
 
 A scored kill starts an 18-update cosmetic burst at the last cached position.
 It cannot move, be hit again, or damage the turret. Three eight-row sprite shapes
@@ -371,7 +389,7 @@ The current prototype stores eight fields per slot as eight arrays of four bytes
 
 | Field | Meaning |
 | --- | --- |
-| `flags_lane` | Bit 7 active; active bits 4–6 type (0 triangle, 1 fast triangle, 2 diamond, 4 square, 5 armor, 6 fast square, 7 hexagon); bits 0–2 lane. Inactive `$40 | lane` temporarily marks a scored burst awaiting coordinate preparation. |
+| `flags_lane` | Bit 7 active; active bits 4–6 type (0 triangle, 1 fast triangle, 2 diamond, 3 reinforced triangle, 4 square, 5 armor, 6 fast square, 7 hexagon); bits 0–2 lane. Inactive `$40 | lane` temporarily marks a scored burst awaiting coordinate preparation. |
 | `radius_hi` | Integer distance |
 | `radius_lo` | Fractional distance |
 | `screen_x` | Cached left edge in color clocks |
@@ -381,7 +399,8 @@ The current prototype stores eight fields per slot as eight arrays of four bytes
 | `visual_state` | Live: bit 7 successful-hit feedback, bits 0–6 remaining feedback updates; inactive: destruction-burst updates |
 
 Vulnerability, score, sprite, starting health, speed, and contact damage come
-from generated type tables. Diamond speed also depends on distance. There is no
+from generated type tables, with diamond starting HP overridden from level 25.
+Diamond speed also depends on distance. There is no
 per-enemy speed byte or beam-hit timer. Square fill is derived from exact radius;
 the damaged armor shape is derived from health. The seven enemy arrays plus four renderer bytes occupy
 32 bytes, leaving the existing guard and stack reservations intact.
@@ -420,24 +439,27 @@ wasted bomb.
 `config/levels.json` contains the quota rule (`start=8`, `step=4`, `cap=64`)
 and spawn rows with `cap`, `spawn_interval`, and eight weighted `types`. The
 separate `late_spawn` setting (`start_level=10`, `interval=4`) overrides the
-minimum spawn delay after the final enemy-mix row without duplicating that row.
+minimum spawn delay. `late_mix` selects a ninth, type-only row from level 20;
+`reinforced_diamond` raises diamond spawn HP to four and selects gold at level 25.
 Quota is `min(8 + 4 * (decimal level - 1), 64)`, independent of the spawn row.
 Generated spawn tables keep the tested type profiles and speeds. Current
 progression settings prioritize a full arena and quick replacement of kills:
 
-| Level | Cap | Kill quota | Minimum spawn delay (updates) | Weights: triangle / fast triangle / diamond / square / armor / fast square / hexagon |
+| Level | Cap | Kill quota | Minimum spawn delay (updates) | Weights: triangle / fast triangle / diamond / square / armor / fast square / hexagon / reinforced triangle |
 | --- | ---: | ---: | ---: | --- |
-| 1 | 2 | 8 | 24 | 6 / 0 / 0 / 2 / 0 / 0 / 0 |
-| 2 | 4 | 12 | 12 | 5 / 2 / 0 / 1 / 0 / 0 / 0 |
-| 3 | 4 | 16 | 12 | 4 / 2 / 0 / 1 / 1 / 0 / 0 |
-| 4 | 4 | 20 | 10 | 3 / 2 / 1 / 1 / 1 / 0 / 0 |
-| 5 | 4 | 24 | 8 | 3 / 2 / 1 / 1 / 1 / 0 / 0 |
-| 6 | 4 | 28 | 8 | 2 / 2 / 2 / 0 / 1 / 1 / 0 |
-| 7 | 4 | 32 | 8 | 2 / 2 / 2 / 1 / 0 / 1 / 0 |
-| 8 | 4 | 36 | 8 | 2 / 2 / 2 / 0 / 0 / 1 / 1 |
-| 9 | 4 | 40 | 8 | 2 / 2 / 2 / 0 / 0 / 1 / 1 |
-| 10–14 | 4 | 44–60 (four more each level) | 4 | 2 / 2 / 2 / 0 / 0 / 1 / 1 |
-| 15 onward | 4 | 64 | 4 | 2 / 2 / 2 / 0 / 0 / 1 / 1 |
+| 1 | 2 | 8 | 24 | 6 / 0 / 0 / 2 / 0 / 0 / 0 / 0 |
+| 2 | 4 | 12 | 12 | 5 / 2 / 0 / 1 / 0 / 0 / 0 / 0 |
+| 3 | 4 | 16 | 12 | 4 / 2 / 0 / 1 / 1 / 0 / 0 / 0 |
+| 4 | 4 | 20 | 10 | 3 / 2 / 1 / 1 / 1 / 0 / 0 / 0 |
+| 5 | 4 | 24 | 8 | 3 / 2 / 1 / 1 / 1 / 0 / 0 / 0 |
+| 6 | 4 | 28 | 8 | 2 / 2 / 2 / 0 / 1 / 1 / 0 / 0 |
+| 7 | 4 | 32 | 8 | 2 / 2 / 2 / 1 / 0 / 1 / 0 / 0 |
+| 8 | 4 | 36 | 8 | 2 / 2 / 2 / 0 / 0 / 1 / 1 / 0 |
+| 9 | 4 | 40 | 8 | 2 / 2 / 2 / 0 / 0 / 1 / 1 / 0 |
+| 10–14 | 4 | 44–60 (four more each level) | 4 | 2 / 2 / 2 / 0 / 0 / 1 / 1 / 0 |
+| 15–19 | 4 | 64 | 4 | 2 / 2 / 2 / 0 / 0 / 1 / 1 / 0 |
+| 20–24 | 4 | 64 | 4 | 1 / 2 / 2 / 0 / 0 / 1 / 1 / 1 |
+| 25 onward | 4 | 64 | 4 | 1 / 2 / 2 / 0 / 0 / 1 / 1 / 1; diamonds spawn with four HP |
 
 All weights are out of eight, before bomb-only spacing/cap restrictions. Enemy
 speeds remain unchanged across these rows. Armor therefore retains about 205
@@ -445,18 +467,22 @@ updates between bomb range and contact, against a 30-update bomb cooldown.
 The orange square has about 85 updates in bomb range and needs only one bomb.
 Orange squares first appear in level 6, hexagons in level 8. These substitutions
 retain the two bomb-only entries per eight-entry late-wave table; cap, quota,
-spawn interval, and bomb cooldown are unchanged by the new variants.
+spawn interval, and bomb cooldown are unchanged by the new variants. The level-20
+row replaces one of the two standard triangle entries with a reinforced triangle.
 The generator validates every cap as 1..4; `TrySpawn` independently enforces
 `VALIDATED_ENEMY_CAP=4`. The loader uses those validated caps directly to save
 ROM space for the late-level delay selection. After the completion clear, new
 spawns use the next level's type mix and delay.
 
 Store the displayed level as packed BCD `01..99`; increment with decimal mode
-only for that operation, then clear it. After level 8, reuse the final spawn row;
+only for that operation, then clear it. After level 8, reuse its cap/delay row;
 compare the displayed BCD level with the generated `LATE_SPAWN_LEVEL` to select
 the shorter delay from level 10. Levels 8–9 keep eight updates between eligible
 arrivals, allowing time to learn the hexagon before the pace changes. Quotas keep
-growing through level 15 and then stay at 64.
+growing through level 15 and then stay at 64. From `LATE_MIX_LEVEL=$20`, use type
+offset 64 for the ninth row, without indexing beyond the eight cap/delay entries.
+At spawn, compare diamond type and `REINFORCED_DIAMOND_LEVEL=$25` to choose
+three or four HP. No health changes apply to other types.
 Level 99 repeats indefinitely without wrapping or indexing beyond the tables.
 The row's type offset is eight times its zero-based index, allowing a random
 three-bit selection without a multiplication or indirect pointer at spawn time.
@@ -633,6 +659,14 @@ the rail/fill on visible lines 190/191, after the arena. Footer entry clears bot
 sprites and the ball; outside play it clears all playfield registers for both
 footer lines. The arena starts at visible line 30 (frame line 70).
 Font tables pad only when an indexed read would cross a page. No new HUD RAM is allocated.
+FIRE/OVER pointer high bytes share one constant; assembler assertions require
+all four text fragments to remain on the same page.
+
+The generator shares identical subsequences and overlapping ends of renderer
+setup, health, and progress tables: 296 logical lookup bytes occupy 254 ROM bytes.
+Each original label aliases its contiguous slice, so the 6502 performs ordinary
+indexed reads with no unpacking. Page-safe raster streams, sprite windows, and
+fonts retain their separate placement constraints.
 
 The game commits `PreviousButtons` before render preparation overwrites the sampled-input scratch with HUD rows. Movement/spawn scratch is also dead by then. Persistent health, score, timers, input history, enemy positions and beam state never alias those HUD buffers.
 

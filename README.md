@@ -4,7 +4,7 @@ A native Atari 2600 prototype of the stationary-turret game described in
 [the port outline](docs/PORT_OUTLINE.md) and [implementation spec](docs/IMPLEMENTATION_SPEC.md).
 The cartridge targets NTSC, uses ordinary 8 KiB F8 banking, and needs no extra RAM.
 
-The current build has one beam shot per joystick flick, seven enemy variants,
+The current build has one beam shot per joystick flick, nine enemy variants,
 five player health points, a four-digit score, and levels that introduce variants
 gradually. It keeps the thin beam, expanding bomb ring, destruction bursts, and
 combat sounds. Level 1 allows two enemies; level 2 onward allows four, with rapid
@@ -73,11 +73,21 @@ and the final score stays visible; release and press Space again, or use F2, to 
 | Blue diamond | Beam or bomb | 3 | Accelerates toward the turret | 1 | 40 |
 | Amber/orange square (level 6) | Bomb only | 1 | 1.5× standard square speed | 1 | 35 |
 | Cyan hexagon (level 8) | Bomb only; beam hurts the player | 1 | Standard | 1 | 60 |
+| Violet reinforced triangle (level 20) | Beam only | 2 | Standard | 1 | 30 |
+| Gold reinforced diamond (level 25) | Beam or bomb | 4 | Accelerates toward the turret | 1 | 40 |
 
 Each shot or bomb deals one damage to a vulnerable target. The large square
-shrinks to an ordinary square after its first bomb hit. The diamond needs three
-hits, using separate beam flicks, bombs, or both. Health, speed, and spawn weights
-are provisional playtest values in `config/tuning.json`.
+shrinks to an ordinary square after its first bomb hit. The ordinary blue diamond
+needs three hits, using separate beam flicks, bombs, or both. From level 25,
+diamonds spawn gold with four HP; the first hit flashes white, then leaves a blue
+diamond with three HP. Start shooting these early: their acceleration and bomb
+cooldown leave too little time for four bombs before contact.
+
+From level 20, violet reinforced triangles replace half the standard green
+triangle entries in the spawn mix. They need two separate beam flicks and remain
+violet after the first hit's white flash. Bombs cannot hurt them. The fast magenta
+triangle keeps its one HP and double contact damage. Health, speed, and scores
+live in `config/tuning.json`; later-level overrides live in `config/levels.json`.
 
 Each fresh beam shot on a hexagon's lane costs **1 player HP**, with the red
 damage flash and a distinct electrical rejection buzz; the hexagon flashes and survives. Holding the stick
@@ -154,10 +164,10 @@ sparks, then dim red embers over 18 updates (about 0.3 seconds). Kills and score
 apply immediately. A burst temporarily occupies the old sprite slot, so a new
 spawn may wait for it to finish when the level's display slots are occupied.
 
-For this playtest, check deliberate diagonal flicks, repeat shots at diamonds,
-the magenta triangle's urgency, the attack/player-damage feedback, and whether armored
-squares leave enough time for two bombs. Let enemies through once to compare
-ordinary contact damage with the small triangle's double damage.
+For this playtest, check whether the violet triangles at level 20 leave enough
+time for two deliberate flicks, and whether four-hit diamonds at level 25 fit the
+current pace. Check the gold-to-blue damage cue and try combining beam hits with
+a bomb as diamonds close in.
 
 ## Levels
 
@@ -183,8 +193,9 @@ health and zero score, including during the celebration.
 Each level keeps its own dark background for the entire wave. The eight-color
 cycle is black, navy, teal, plum, forest green, brown, indigo, then charcoal;
 level 9 returns to black and the cycle repeats. It continues independently of
-the enemy-mix table, which stops changing after level 8. Kill quotas keep growing
-until level 15. Enemy, beam, and HUD colors stay unchanged. Red damage feedback temporarily overrides the background,
+the enemy introductions at levels 20 and 25. Kill quotas keep growing
+until level 15. Each enemy keeps its own colors across backgrounds, as do beams
+and the HUD. Red damage feedback temporarily overrides the background,
 then restores it, including on game over. A new run resets to level 1 and black.
 At the displayed level cap of 99, the background stays on level 99’s color.
 
@@ -197,10 +208,12 @@ At the displayed level cap of 99, the background stays on level 99’s color.
 | 5 | Same mix, shorter spawn interval | 4 | 24 | 0.13 s |
 | 6 | Adds faster orange squares; greater diamond weight | 4 | 28 | 0.13 s |
 | 7 | Larger kill quota | 4 | 32 | 0.13 s |
-| 8 | Adds retaliating cyan hexagons; final enemy mix | 4 | 36 | 0.13 s |
+| 8 | Adds retaliating cyan hexagons | 4 | 36 | 0.13 s |
 | 9 | Same mix; larger kill quota | 4 | 40 | 0.13 s |
 | 10–14 | Faster arrivals; four more defeats per level | 4 | 44–60 | 0.067 s |
-| 15 onward | Quota reaches its cap | 4 | 64 | 0.067 s |
+| 15–19 | Quota reaches its cap | 4 | 64 | 0.067 s |
+| 20–24 | Adds two-hit violet triangles | 4 | 64 | 0.067 s |
+| 25 onward | Diamonds start gold with four HP | 4 | 64 | 0.067 s |
 
 Smaller delays mean more frequent enemies when space is available. Levels 8–9
 give the hexagon two waves at the established pace; from level 10, the minimum
@@ -217,10 +230,11 @@ hexagons share the two-target limit from wave 2. A bomb damages every eligible
 target in range, so it can hit both squares together.
 Each level requires four more defeats: 8, 12, 16, 20, and so on, capped at 64
 from level 15 onward. The progress bar uses that level's full quota. Levels
-after 8 retain the final enemy mix and four-enemy screen limit; the shorter delay
-from level 10 continues through level 99.
-The displayed number stops at 99 and play continues. The quota rule and spawn
-rows and the `late_spawn` setting live in `config/levels.json`.
+8–19 use the same enemy mix; level 20 substitutes one reinforced triangle entry,
+and level 25 increases newly spawned diamond health. The four-enemy screen limit
+and shorter delay from level 10 continue through level 99.
+The displayed number stops at 99 and play continues. The quota rule, spawn rows,
+`late_spawn`, `late_mix`, and `reinforced_diamond` settings live in `config/levels.json`.
 
 ## Sound and Stella setup
 
@@ -281,7 +295,7 @@ appearances further.
 
 ## Validation and development
 
-`make check` runs 106 tests covering generated geometry, all joystick combinations,
+`make check` runs 110 tests covering generated geometry, all joystick combinations,
 button edges and exact cooldown boundaries, both startup banks, stack/guard
 integrity, fixed frame lengths, kernel write deadlines, and display fairness.
 Audio tests check exact TIA envelopes and expiry, simultaneous-event priority,
@@ -300,10 +314,10 @@ beyond the former pulse duration, damage priority/restoration, restart/reset,
 quota growth/capping and palette cycling through all 99 BCD levels,
 the level-10 delay change and exact first/replacement spawn timing,
 the blank lower-right HUD, write deadlines, level 99 saturation, and a natural run through
-the opening four levels. Density tests cover all 2,401 four-target type combinations,
+the opening four levels. Density tests cover all 4,096 four-target type combinations,
 both render phases, safe horizontal approaches through destruction bursts, and
 1,800 frames each of natural four-enemy spawning in levels 2, 6, and 8, plus
-2,400 frames at level 10, without excess omissions.
+2,400 frames each at levels 10, 20, and 25, without excess omissions.
 Wave-bar checks cover every progress step at all quota sizes, over-quota debugger
 values, and exact raster deadlines. Bomb-only tests check all squares and hexagons against
 the cap and spacing, two armored targets dying to two ready bombs, and natural
@@ -322,6 +336,10 @@ frames that encounters and defeats the five early types. Late-variant checks
 cover orange-square speed, hexagon retaliation once per flick, bomb-first
 protection, contact/death/healing order, later-level spawn weights, and timing
 with four targets, sound, score carry, wave advancement, and due spawns.
+Reinforced-enemy checks cover actual spawns on either side of levels 20 and 25,
+two-shot triangles, four-hit diamonds with either weapon or mixed attacks,
+held-input rejection, unchanged contact damage, and the gold-to-blue color change
+with feedback priority on every background and both display phases.
 New checks also cover flick rearming,
 fading while held/released, every weapon/type pair, nonlethal/immunity flashes,
 two-bomb armor, accelerating movement, and double contact damage. Feedback checks
@@ -358,6 +376,10 @@ The updated wave HUD and paired squares appear in
 `build/stella/latest-headless-four-levels.json` (81 images); inspected examples
 cover the hidden title/game-over bar, bottom progress display, full-bar celebrations and next-wave starts, two-square combat, and persistent level colors with enemy silhouettes, and both milestone rewards.
 These contain images rather than a debugger state/timing log.
+The reinforced-enemy script adds 27 captures, indexed by
+`build/stella/latest-headless-four-reinforced.json`: both draw phases on all eight
+backgrounds, triangle immunity and two-shot kills, and diamond health/color stages.
+Its full graphical-session counterpart writes `build/stella/latest-reinforced.json`.
 Run `make stella-check` in a graphical session for the full scripted debugger pass. Television flicker, real joystick diagonals, and sound still
 need a hardware pass.
 
@@ -365,8 +387,7 @@ Assembly lives in `src/`; `config/` contains tuning and static fixtures;
 `tools/generate_assets.py` produces the shared graphics tables. The independent
 Godot reference checkout in `res/` is ignored by this repository.
 
-Next is playtesting the paired squares at the accepted four-enemy pace and whether
-the bar makes wave progress clear. More than four
+Next is playtesting the reinforced enemies at levels 20 and 25. More than four
 simultaneous enemies would require revising the RAM map and render schedule.
 
 ## License

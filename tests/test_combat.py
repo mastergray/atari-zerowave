@@ -97,7 +97,7 @@ class CombatTests(unittest.TestCase):
                 self.enemy(m, 0, 2, 40)
                 self.frame(m, 8)
                 self.assertEqual(m.value("Health"), 3)  # no repeat or banked full-HP reward
-        for kind in (0, 1, 2, 4, 5, 6, 7):
+        for kind in range(8):
             m = self.game()
             m.poke("Health", 2)
             self.set_score(m, 995)
@@ -135,7 +135,7 @@ class CombatTests(unittest.TestCase):
                 self.assertEqual(m.value("EnemyFlags", 2), 0xa4)  # healing back to five must not also clear
 
     def test_full_health_bonus_clears_every_type_with_bursts_and_no_extra_score(self):
-        for kind in (0, 1, 2, 4, 5, 6, 7):
+        for kind in range(8):
             m = self.game()
             m.poke("KillsRemaining", 10)
             self.set_score(m, 990)
@@ -189,7 +189,7 @@ class CombatTests(unittest.TestCase):
             self.assertEqual(self.score(m), 1000)
 
     def test_full_health_clear_timing_with_movement_bomb_and_level_rollover(self):
-        for kind in (0, 1, 2, 4, 5, 6, 7):
+        for kind in range(8):
             for level in (0x09, 0x99):
                 for radius in (20, 40):
                     for quota in (1, 8):
@@ -469,6 +469,97 @@ class CombatTests(unittest.TestCase):
                     self.assertEqual(m.value("EnemyVisual"), 0)
                     self.assert_arena_colors_and_sprites(m)
 
+    def test_reinforced_spawns_begin_at_twenty_and_twenty_five(self):
+        definitions = {t['id']: t for t in assets.load_config()['enemy_types']}
+        for level in (19, 20, 24, 25, 99):
+            with self.subTest(level=level):
+                m = self.game()
+                m.poke('LevelNumber', int(str(level), 16))
+                m.poke('GameMode', 3)
+                m.poke('SpawnTimer', 1)
+                self.frame(m)
+                seen = set()
+                for _ in range(128):
+                    for slot in range(4):
+                        m.poke('EnemyFlags', 0, slot)
+                        m.poke('EnemyVisual', 0, slot)
+                    m.poke('SpawnTimer', 1)
+                    m.poke('SquareTimer', 0)
+                    self.frame(m)
+                    kind = (m.value('EnemyFlags') >> 4) & 7
+                    seen.add(kind)
+                    hp = 4 if kind == 2 and level >= 25 else definitions[kind]['health']
+                    self.assertEqual(m.value('EnemyHealth'), hp)
+                    self.assertEqual(m.value('SpawnTimer'), 4)
+                    self.assert_arena_colors_and_sprites(m)
+                self.assertEqual(seen, {0, 1, 2, 6, 7} | ({3} if level >= 20 else set()))
+
+    def test_reinforced_triangle_needs_two_flicks_and_rejects_bombs(self):
+        for lane, mask in enumerate(MASKS):
+            m = self.game()
+            self.enemy(m, 0, lane, 20, kind=3)
+            self.frame(m, fire=True)
+            self.assertEqual(m.value('EnemyHealth'), 2)
+            self.assertEqual(m.value('EnemyVisual'), 18)
+            self.assertEqual(m.value('EventSoundId'), m.sym['SFX_IMMUNE'])
+            self.frame(m, mask)
+            self.assertEqual(m.value('EnemyHealth'), 1)
+            self.assertEqual(m.value('EnemyVisual'), 0x80 | 6)
+            self.assertEqual(m.value('EventSoundId'), m.sym['SFX_HIT'])
+            for _ in range(16):
+                self.frame(m, mask)
+                self.assertEqual((m.value('EnemyHealth'), self.score(m)), (1, 0))
+                self.assert_arena_colors_and_sprites(m)
+            self.frame(m)
+            self.frame(m, mask)
+            self.assertEqual((m.value('EnemyFlags'), m.value('EnemyVisual')), (0, 18))
+            self.assertEqual((self.score(m), m.value('KillsRemaining'), m.value('Health')), (30, 254, 5))
+            self.assertEqual(m.value('EventSoundId'), m.sym['SFX_KILL'])
+        for hp, expected_health, expected_score in ((2, 4, 0), (1, 5, 30)):
+            m = self.game()
+            self.enemy(m, 0, 2, 8, kind=3, health=hp)
+            self.frame(m, 8)
+            self.assertEqual((m.value('Health'), self.score(m)), (expected_health, expected_score))
+
+    def test_reinforced_diamond_takes_four_hits_and_loses_gold_shell(self):
+        for attacks in (('beam',) * 4, ('bomb',) * 4, ('beam', 'bomb', 'beam', 'bomb')):
+            m = self.game()
+            self.enemy(m, 0, 2, 20, kind=2, health=4)
+            self.frame(m)
+            self.assertEqual(m.bus.tia[0x07], 0x1e)
+            self.assert_arena_colors_and_sprites(m)
+            for damage, attack in enumerate(attacks, 1):
+                self.frame(m)  # release/rearm before every distinct attack
+                m.poke('BombCooldown', 0)  # cooldown has separate exact-boundary tests
+                mask, bomb = (8, False) if attack == 'beam' else (0, True)
+                self.frame(m, mask, fire=bomb)
+                self.assertEqual(m.value('EnemyHealth'), 4 - damage)
+                self.assertEqual(self.score(m), 40 if damage == 4 else 0)
+                self.assertEqual(m.value('KillsRemaining'), 254 if damage == 4 else 255)
+                for _ in range(6):
+                    self.frame(m, mask, fire=bomb)
+                    self.assertEqual(m.value('EnemyHealth'), 4 - damage)
+                    self.assert_arena_colors_and_sprites(m)
+                if damage < 4:
+                    self.assertEqual(m.bus.tia[0x07], 0x8e)
+            self.assertEqual(m.value('Health'), 5)
+
+    def test_reinforced_colors_and_feedback_on_every_background(self):
+        for background in assets.load_config()['level_background_colors']:
+            m = self.game()
+            m.poke('LevelBackground', background)
+            for slot, kind, lane, radius in ((0, 2, 0, 40), (1, 3, 1, 40),
+                                              (2, 2, 4, 24), (3, 7, 5, 24)):
+                self.enemy(m, slot, lane, radius, kind=kind, health=4 if kind == 2 else None)
+            for _ in range(2):
+                self.frame(m)
+                self.assert_arena_colors_and_sprites(m)
+            self.frame(m, 1)  # first diamond sheds its shell; lower one stays gold
+            for _ in range(8):
+                self.frame(m, 1)
+                self.assert_arena_colors_and_sprites(m)
+                self.assertEqual((m.value('EnemyHealth', 0), m.value('EnemyHealth', 2)), (3, 4))
+
     def test_hexagon_retaliates_once_per_fresh_matching_beam(self):
         for slot in range(4):
             for lane, mask in enumerate(MASKS):
@@ -534,7 +625,7 @@ class CombatTests(unittest.TestCase):
 
     def test_hexagon_busy_update_with_movement_score_and_due_spawn(self):
         for hex_slot in range(4):
-            for kind in (0, 1, 2, 4, 5, 6, 7):
+            for kind in range(8):
                 for radius in (8, 20, 40):
                     for quota in (1, 8):
                         with self.subTest(hex_slot=hex_slot, kind=kind, radius=radius, quota=quota):
@@ -589,7 +680,7 @@ class CombatTests(unittest.TestCase):
 
     def test_approach_warning_only_for_live_magenta_triangles_in_range(self):
         for slot in range(4):
-            for kind in (0, 1, 2, 4, 5, 6, 7):
+            for kind in range(8):
                 m = self.game()
                 for radius in (63, 49, 48, 24, 9):
                     self.enemy(m, slot, 2, radius, kind=kind)
@@ -876,7 +967,7 @@ class CombatTests(unittest.TestCase):
         self.assertEqual(self.score(m), 50)
 
     def test_bomb_boundary_and_no_feedback_for_out_of_range_variants(self):
-        for kind in (0, 1, 2, 4, 5, 6, 7):
+        for kind in range(8):
             m = self.game()
             self.enemy(m, 0, 2, 24, kind=kind)
             self.enemy(m, 1, 6, 24, fraction=1, kind=kind)
@@ -934,7 +1025,7 @@ class CombatTests(unittest.TestCase):
         self.assertEqual(self.score(m), 0)
 
     def test_all_variant_silhouettes_and_feedback_with_survivor_on_both_phases(self):
-        for kind in (0, 1, 2, 4, 5, 6, 7):
+        for kind in range(8):
             for lane, mask in enumerate(MASKS):
                 m = self.game()
                 self.enemy(m, 0, lane, 63, kind=kind)
@@ -1430,7 +1521,8 @@ class CombatTests(unittest.TestCase):
             row = levels[min(number, len(levels)) - 1]
             interval = (config["late_spawn"]["interval"]
                         if number >= config["late_spawn"]["start_level"] else row["spawn_interval"])
-            self.assertEqual(m.value("LevelTypeOffset"), (min(number, len(levels)) - 1) * 8)
+            type_row = len(levels) if number >= config["late_mix"]["start_level"] else min(number, len(levels)) - 1
+            self.assertEqual(m.value("LevelTypeOffset"), type_row * 8)
             self.assertEqual(m.value("KillsRemaining"), min(8 + 4 * (number - 1), 64))
             self.assertEqual(m.value("ActiveCap"), min(row["cap"], 4))
             self.assertEqual(m.value("SpawnInterval"), interval)
@@ -1450,7 +1542,7 @@ class CombatTests(unittest.TestCase):
                 m.poke("GameMode", 3)
                 m.poke("SpawnTimer", 1)
                 self.frame(m)
-                self.assertEqual(m.value("LevelTypeOffset"), 7 * 8)
+                self.assertEqual(m.value("LevelTypeOffset"), (8 if level >= 20 else 7) * 8)
                 self.assertEqual(m.value("ActiveCap"), 4)
                 # Both the first arrival and a replacement must wait the exact
                 # delay. Clear the previous slot to isolate cadence from spacing.
@@ -1494,7 +1586,7 @@ class CombatTests(unittest.TestCase):
             self.assertEqual(self.score(m), 50)
 
     def test_level_completion_shows_full_bar_then_clear_and_consumes_controls(self):
-        for kind in (0, 1, 2, 4, 5, 6, 7):
+        for kind in range(8):
             m = self.game()
             m.poke("KillsRemaining", 1)
             m.poke("Health", 3)  # wave clear does not require full health
@@ -1551,7 +1643,7 @@ class CombatTests(unittest.TestCase):
     def test_level_background_preserves_all_enemy_colors_and_attack_effects(self):
         palette = (0x00, 0x90, 0xb0, 0x60, 0xd0, 0x20, 0x80, 0x02)
         for level in range(2, 10):
-            for kind in (0, 1, 2, 4, 5, 6, 7):
+            for kind in range(8):
                 m = self.game()
                 m.poke("LevelNumber", level)
                 m.poke("GameMode", 3)
@@ -1656,7 +1748,7 @@ class CombatTests(unittest.TestCase):
         self.assertEqual(m.value("LevelNumber"), 2)
 
     def test_level_bcd_increment_saturation_and_reset_during_clear(self):
-        for start, expected in ((1, 2), (8, 9), (9, 10), (14, 15), (15, 16), (19, 20), (98, 99), (99, 99)):
+        for start, expected in ((1, 2), (8, 9), (9, 10), (14, 15), (15, 16), (19, 20), (24, 25), (98, 99), (99, 99)):
             m = self.game()
             m.poke("LevelNumber", int(str(start), 16))
             m.poke("KillsRemaining", 0)
@@ -1673,7 +1765,7 @@ class CombatTests(unittest.TestCase):
                 self.frame(m)
             self.assertEqual(m.value("GameMode"), 1)
             self.assertEqual((m.value("Health"), self.score(m)), (3, 9999))
-            self.assertEqual(m.value("LevelTypeOffset"), min(expected - 1, 7) * 8)
+            self.assertEqual(m.value("LevelTypeOffset"), (8 if expected >= 20 else min(expected - 1, 7)) * 8)
         m.poke("KillsRemaining", 0)
         self.frame(m)
         self.frame(m, 8, fire=True, reset=True)

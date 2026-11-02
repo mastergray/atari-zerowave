@@ -178,19 +178,21 @@ If this version does not fit cleanly, cut in this order: decorative indicators a
 
 Preserve the eight-way beam and bomb button throughout those experiments. After testing the accepted ring/beam experiment and completing the reduced game, prioritize higher enemy counts for later levels before further visual effects. Charge bombs, sweep effects, shifters, reflectors, XP, and weapon upgrades remain outside the initial scope; level progression is included.
 
-The playable prototype now implements all seven variants, one beam shot per
+The playable prototype now implements nine variants, one beam shot per
 joystick flick, automatic shot fades, the revised vulnerabilities, vivid immunity
 and hit feedback, red player-damage flashes, attack/combat/game-over sounds,
 health, score, destruction bursts, and restart. Eight difficulty rows introduce
-the variants across the first four levels, then increase spawn frequency and
-diamond weight. The upper HUD shows score, health, and `LV01` for the level,
+the early variants through level 8. Later milestones shorten the spawn delay at
+level 10, add two-hit violet beam-only triangles at level 20, and give diamonds
+four HP at level 25. Reinforced diamonds start gold and become blue after their
+first hit; both weapons still damage them. The upper HUD shows score, health, and `LV01` for the level,
 with a thin filling progress bar below the arena.
 The bar appears during play and wave completion; title/game-over screens hide it.
 Each wave keeps a dark background from an eight-color cycle, repeating at level 9;
 foreground colors stay unchanged, and red player-damage feedback temporarily
 overrides the level color before restoring it.
 Require 8 defeats on level 1, then four more each level, capped at 64 from
-level 15 onward. This continues past the final enemy-mix row at level 8.
+level 15 onward, including the reinforced-enemy waves.
 At the kill quota, hold the fully green bar and clear surviving enemies with
 bursts, two yellow flashes, and the existing all-clear sound. This works at any
 remaining HP, grants no extra points or health, and takes 32 updates before the
@@ -198,11 +200,11 @@ next level begins. Finish nonfatal damage feedback first; death wins over
 completion. Health and score carry over, and the 1,000-point rewards remain. Level 1 allows two enemies;
 level 2 onward allows four using vertical sprite reuse and approach-spacing
 checks. Spawns are due every 24 updates initially, 12 from level 2, and eight
-from level 5; unsafe placements retry after two updates. Bomb recharge remains
+from level 5, then four from level 10; unsafe placements retry after two updates. Bomb recharge remains
 30 updates (about half a second). Wave 1 allows one bomb-only square; later waves
 allow two bomb-only enemies together, including fast squares and hexagons,
 retaining the 72-update spawn spacing.
-CPU/register tests cover all 2,401 four-target type combinations and natural
+CPU/register tests cover all 4,096 four-target type combinations and natural
 crowding; current headless Stella captures cover the HUD and both draw phases.
 Level balancing and hardware readability still need playtesting. More than
 four slots would need a revised RAM map and display schedule. The earlier static display fixtures and held-beam

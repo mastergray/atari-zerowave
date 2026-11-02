@@ -342,6 +342,15 @@ TrySpawn:
 .create:
     ldx FreeSlot
     lda TypeHealth,y
+    cpy #(TYPE_DIAMOND >> 4)
+    bne .health
+    ; The displayed level is packed BCD. CMP supplies one extra HP from level
+    ; 25 onward; the diamond keeps the same type, speed, weapons and score.
+    lda LevelNumber
+    cmp #REINFORCED_DIAMOND_LEVEL
+    lda #(REINFORCED_DIAMOND_HEALTH-1)
+    adc #0
+.health:
     sta EnemyHealth,x
     tya
     asl

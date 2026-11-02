@@ -53,7 +53,8 @@ class DensityTests(unittest.TestCase):
         m.poke('EnemyFlags', 0x80 | kind << 4 | lane, slot)
         m.poke('EnemyRadiusHi', radius, slot)
         m.poke('EnemyRadiusLo', 0, slot)
-        m.poke('EnemyHealth', 3 if kind == 2 else 1, slot)
+        definition = next(t for t in assets.load_config()['enemy_types'] if t['id'] == kind)
+        m.poke('EnemyHealth', definition['health'], slot)
         m.poke('EnemyVisual', 0, slot)
 
     def test_geometry_has_enough_blank_rows_for_every_allowed_pair_and_shake(self):
@@ -116,7 +117,7 @@ class DensityTests(unittest.TestCase):
         self.assertEqual(seen, {0, 1, 2})
 
     def test_later_levels_reach_four_and_never_hide_an_enemy_for_two_frames(self):
-        for level, expected in ((2, {0, 1, 4}), (6, {6}), (8, {6, 7}), (10, {6, 7})):
+        for level, expected in ((2, {0, 1, 4}), (6, {6}), (8, {6, 7}), (10, {6, 7}), (20, {3}), (25, {2, 3})):
             m = self.game()
             m.poke('LevelNumber', int(str(level), 16))
             m.poke('GameMode', 3)
@@ -168,13 +169,12 @@ class DensityTests(unittest.TestCase):
                                 or assets.travel_frames(new, full, contact, tuning) + 18 < assets.travel_frames(old, radius, safe, tuning))
 
     def test_four_target_combat_all_type_combinations_fits_frame_budget(self):
-        for kinds in itertools.product((0, 1, 2, 4, 5, 6, 7), repeat=4):
+        for kinds in itertools.product(range(8), repeat=4):
             m = self.game()
             m.poke('MovementEnabled', 0)
             m.poke('SpawnTimer', 255)
             for slot, lane, radius, kind in zip((0, 1, 2, 3), (7, 0, 3, 4), (24, 24, 9, 9), kinds):
                 self.enemy(m, slot, lane, radius, kind)
-                m.poke('EnemyHealth', 2 if kind == 5 else 3 if kind == 2 else 1, slot)
             self.frame(m, 5, fire=True)
             self.frame(m, 5, fire=True)
             self.assertEqual(m.value('Health'), 5)

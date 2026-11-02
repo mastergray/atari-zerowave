@@ -27,6 +27,7 @@
     {"id": 0, "name": "triangle", "health": 1, "speed": 32, "damage": 1, "weapons": 1, "score": 10, "color": 206, "sprite": 0},
     {"id": 1, "name": "fast_triangle", "health": 1, "speed": 80, "damage": 2, "weapons": 1, "score": 20, "color": 94, "sprite": 1},
     {"id": 2, "name": "diamond", "health": 3, "speed": 32, "damage": 1, "weapons": 3, "score": 40, "color": 142, "sprite": 6},
+    {"id": 3, "name": "reinforced_triangle", "health": 2, "speed": 32, "damage": 1, "weapons": 1, "score": 30, "color": 110, "sprite": 0},
     {"id": 4, "name": "square", "health": 1, "speed": 32, "damage": 1, "weapons": 2, "score": 25, "color": 78, "sprite": 2},
     {"id": 5, "name": "armored_square", "health": 2, "speed": 20, "damage": 1, "weapons": 2, "score": 50, "color": 78, "sprite": 4},
     {"id": 6, "name": "fast_square", "health": 1, "speed": 48, "damage": 1, "weapons": 2, "score": 35, "color": 46, "sprite": 2},

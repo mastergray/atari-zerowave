@@ -19,14 +19,15 @@ PrepareHud:
     beq .level
     cpy #MODE_LEVEL_BREAK
     beq .level
+    ; FIRE/OVER glyphs share a page (asserted by the asset generator), so their
+    ; two pointers need only one immediate high byte and separate low tables.
+    lda #>HudText0Left1
+    sta HudStatus1+1
+    sta HudStatus2+1
     lda HudStatus1Lo,y
     sta HudStatus1
-    lda HudStatus1Hi,y
-    sta HudStatus1+1
     lda HudStatus2Lo,y
     sta HudStatus2
-    lda HudStatus2Hi,y
-    sta HudStatus2+1
     jmp .score
 .level:
     lda LevelNumber

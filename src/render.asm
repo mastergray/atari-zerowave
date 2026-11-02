@@ -315,7 +315,16 @@ PrepareEnemyGraphic:
     cpy #2                ; only square graphics 2..5 have an outline/fill pair
     bcc .feedback
     cpy #6                ; diamond and shared hexagon/flash shape stay filled
-    bcs .feedback
+    bcc .square
+    ; Only a reinforced diamond starts with four HP. Its gold shell disappears
+    ; on the first hit; the existing white hit flash then reveals ordinary blue.
+    lda EnemyHealth,x
+    cmp #REINFORCED_DIAMOND_HEALTH
+    bcc .feedback
+    lda #COLOR_REINFORCED_DIAMOND
+    sta NextColor
+    bne .feedback
+.square:
     lda EnemyHealth,x
     cmp #1
     bne .range

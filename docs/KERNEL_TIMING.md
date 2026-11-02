@@ -6,8 +6,9 @@ harness. The reference quota-growth build has 81 Stella 6.0.2 screenshots captur
 with SDL dummy video. Earlier references include 37 late-variant scenes and
 32 four-target density captures. Each snapshot directory retains its ROM;
 each sound capture below records the ROM hash it used.
-The level-10 pacing update is verified with CPU/register tests; those existing
-screenshots retain their original ROM hashes. Television readability and the full X11 debugger transcript
+The reinforced-enemy build adds 27 Stella captures of levels 20/25, both draw
+phases on all eight backgrounds, and damage/color stages. Earlier screenshots
+retain their original ROM hashes. Television readability and the full X11 debugger transcript
 pass remain separate from those still-image checks.
 
 ## Frame layout
@@ -66,6 +67,9 @@ bytes and selects two status pointers. These occupy `$D8–$E5` only during
 display; input and spawn scratch can reuse them during overscan after the last
 visible line. The input history is committed before HUD preparation overwrites
 the samples. Health masks use two previously reserved audio bytes.
+FIRE/OVER pointers share one immediate high byte instead of two lookup tables;
+assembly asserts that all four text fragments stay on the same page. Their
+separate low-byte tables still select the appropriate fragments.
 
 For play and wave completion (mode 3), status pointers select the level's tens
 and ones glyphs from page-safe 50-byte tables. The tens table aliases the score's
@@ -267,6 +271,10 @@ The orange square reuses the normal square pair. The cyan hexagon shares
 `BurstFlash` (graphic 7), widened to a flat-topped six-sided shape; its first
 white destruction-flash silhouette changes accordingly. Hexagons bypass square
 range-fill selection. The atlas remains ten windows with no extra sprite page.
+The reinforced triangle shares the standard triangle window, colored violet.
+A four-HP diamond uses gold until the first hit, then ordinary blue at three HP;
+the existing white successful-hit flash overrides either base color. All other
+types have less than four HP, which the generator validates.
 
 Display setup and HUD preparation now run in bank 0. After VSYNC, bank 1 starts
 the blanking timer and jumps through `PrepareEntry` ($FF92) to bank 0; it returns
@@ -282,6 +290,14 @@ font, `$FFDC–$FFE4` holds `ProgressRight1`, and `$FFE5–$FFED` holds
 78 bytes into matching bank tails and packing the score fonts between setup
 tables makes room for wave completion without enlarging the cartridge. All indexed
 reads stay on-page; assembly and structural checks keep the data below `$FFF8`.
+
+Renderer setup, health masks, and the first three progress masks share repeated
+subsequences and overlapping table ends. The generator emits 254 bytes for 296
+logical lookup bytes, with each table name aliasing its contiguous slice. Raster
+stream pointers use their known three-per-page offsets; sprite pointers use
+their two-per-page offsets. No runtime unpacking is needed. Setup lookups may
+cross pages within the measured blanking budget; timed raster streams, sprite
+windows, fonts, and shared-tail reads retain their page constraints.
 
 Player contact starts a 12-update background flash. `PlayerHitTimer` uses one
 former audio reserve byte; it advances before combat and also during game over.
@@ -408,8 +424,9 @@ the final timbre and relative volume still benefit from listening during play.
 and the eight-entry type-row offset uses former render reserve `$D7`.
 `SpawnTimer` doubles as the completion countdown in mode 3, with zero meaning
 that the clear is pending. These lifetimes leave the guard and stack untouched.
-The BCD level saturates at 99 and maps levels above eight to the final spawn
-row. The quota grows separately: 8 on level 1, plus four each level, capped at
+The BCD level saturates at 99 and maps levels above eight to the final cap/delay
+row. From level 20, a ninth type-only row replaces one standard triangle entry
+with type 3, the reinforced triangle. The quota grows separately: 8 on level 1, plus four each level, capped at
 64 from level 15. Loading and HUD preparation share `CalculateQuota`; the old
 eight-byte quota table is removed. The routine caps before the BCD-to-binary
 conversion, so only levels 10–14 need the six-value correction. Its scratch-free
@@ -435,8 +452,10 @@ celebration. Wave 1 retains a cap of two and a 24-update spawn interval; wave 2
 has four and 12 updates, falling to eight updates at wave 5 and four updates
 from wave 10 onward. Waves 8–9 retain the established pace when hexagons first
 appear. The generator emits a separate BCD threshold and delay from `late_spawn`;
-the final type row still serves every wave after 8. Type speeds are
-unchanged. The completion sequence does not require full health and does not
+`late_mix` selects type offset 64 from level 20. `reinforced_diamond` supplies a
+BCD level-25 threshold; the diamond spawn path uses the comparison's carry to
+choose three or four HP. Type, speed, weapon rules, score, and RAM use stay the
+same. The completion sequence does not require full health and does not
 replace the separate 1,000-point rewards.
 
 Actual Stella audio from a wave completed by a bomb at three HP and 25 points
@@ -448,40 +467,42 @@ script retained. Register tests assert the 32-update cue and yellow phases.
 
 | Resource | Current measurement |
 | --- | --- |
-| Bank 0 end / room before trampoline | `$FF7F` / 1 byte |
+| Bank 0 end / room before trampoline | `$FF7B` / 5 bytes |
 | Bank 1 end / room before trampoline | `$FF00` / 128 bytes |
 | Cartridge | 8,192 bytes, identical bank tails and vectors |
 | RAM | Fixed 128-byte map, including reserves and stack |
 | Stack | Eight bytes observed; 16 reserved |
 | Guard | Eight bytes at `$E8–$EF`, intact in tested runs |
-| Update cost | 288–1,875 cycles from `GameFrame` to `LogicDone` |
+| Update cost | 288–1,889 cycles from `GameFrame` to `LogicDone` |
 | Render preparation done | 1,620–2,380 cycles from VSYNC line start |
 
-The suite contains 106 tests (77 combat and 29 density/diagnostic). Loading
-checks cover all 99 displayed levels, including the shorter delay from level 10;
+The suite contains 110 tests (81 combat and 29 density/diagnostic). Loading
+checks cover all 99 displayed levels, including the shorter delay from level 10,
+the type-row change at level 20, and reinforced diamond spawns from level 25;
 progress rendering covers every supported quota, including 09/10, 14/15/16,
-and the capped later levels. The late-spawn validation is recorded in
-`build/late-spawn-validation.json`, including the full suite and targeted
-boundary/rollover and natural-density reruns. Previous evidence remains in
-`build/wave-clear-validation.json` and `build/quota-growth-validation.json`;
+and the capped later levels. Current validation is recorded in
+`build/reinforced-validation.json`, including ROM hashes, suite results, timing,
+and the 27 Stella captures. Previous evidence remains in
+`build/late-spawn-validation.json`, `build/wave-clear-validation.json`, and `build/quota-growth-validation.json`;
 the latter retains the reference ROM and its 81 Stella screenshots.
 
-The combat suite records 18,224 frame samples in `build/combat-timing.json`,
+The combat suite records 20,025 frame samples in `build/combat-timing.json`,
 including a survival run of at least 1,400 frames across the five early types, movement/attack/contact boundaries, scoring,
 spawning, immunity/hit feedback, destruction bursts, HUD values, and restart.
 A second natural run completes the first four levels with all early variants seen and
 no player damage. Fixtures check quotas, completion clears, carry/saturation at levels
-09/10/99, per-row spawning, input history, and death/reset priority. The focused
-rerun adds 828 samples in `build/late-spawn-boundary-timing.json`, checking exact
-first/replacement delays at levels 8/9/10/11/99 and wave-boundary countdowns.
-The full-health-clear test includes 56 fixtures combining movement, both attacks,
+09/10/19/20/24/25/99, per-row spawning, input history, and death/reset priority.
+New fixtures test two fresh beam hits on violet triangles, bomb immunity,
+four separate beam/bomb/mixed hits on reinforced diamonds, held-input rejection,
+gold-to-blue appearance, feedback priority, and exact first/replacement delays.
+The full-health-clear test includes 64 fixtures combining movement, both attacks,
 all survivor types, a due spawn, and 09/10 or saturated-99 wave advancement.
-Another 168 fixtures combine a hexagon in every slot with movement, a fresh
+Another 192 fixtures combine a hexagon in every slot with movement, a fresh
 beam, bombs, other target types at contact/inside/outside bomb range, score
 carry, wave advancement, and a due spawn. These stay within the update/preparation budgets, including normal scored
 bursts positioned during blanking and bonus bursts retaining cached positions.
 Tests enforce the 2,000-cycle update and
-2,400-cycle preparation limits. The static diagnostic build has 1,096 bytes free
+2,400-cycle preparation limits. The static diagnostic build has 1,064 bytes free
 in bank 0 and 896 in bank 1.
 
 Four 64-byte magnitude tables live in bank 0. Cardinal/diagonal signs reconstruct
@@ -528,11 +549,10 @@ largest immunity-shake difference. Tests exhaust every legal lane/radius pair's
 space requirement, reconstruct actual sprite rows and HMOVE positions, exercise
 all beam/ring patterns on both paired phases, and check natural four-enemy
 visibility through repeated center arrivals. Additional fixtures exercise all
-2,401 four-target type combinations under simultaneous beam/bomb damage.
+4,096 four-target type combinations under simultaneous beam/bomb damage.
 `build/density-timing.json` records the busy four-target cases, 96 idle-warning
-layouts, and natural spawning. The final natural-density rerun is recorded in
-`build/late-spawn-density-timing.json`: 1,800 updates each in levels 2, 6, and 8,
-plus 2,400 at level 10 to include both late bomb-only types in the seeded run.
+layouts, and natural spawning: 1,800 updates each in levels 2, 6, and 8,
+plus 2,400 each at levels 10, 20, and 25 to include the late variants in the seeded run.
 Every live enemy remains visible at least every
 other frame, and every level reaches four within 120 updates.
 
@@ -603,6 +623,13 @@ The scripts, SDL input injector source, ROMs, and images are retained under
 `build/stella/latest-headless-four-variants.json`. These captures have no debugger
 state/timing transcript; current timing and state assertions come from py65.
 The normal X11 verification scripts remain available for a local full pass.
+The November 1 reinforced-enemy captures use the current ROM and are retained in
+`build/stella/headless-four-reinforced-20261101-205500`, indexed by
+`build/stella/latest-headless-four-reinforced.json`. Inspected images show violet
+triangles against the level-20 plum background and gold diamonds becoming blue
+after damage. The 27-image set also includes immunity, hit/kill stages, and both
+draw phases on all eight backgrounds. Like the earlier dummy-video captures,
+these verify appearance; CPU/register tests supply the state and timing checks.
 Real hardware flicker and audio remain untested. Further density beyond four
 requires a revised memory map and rendering plan, as described in
 [the implementation specification](IMPLEMENTATION_SPEC.md).

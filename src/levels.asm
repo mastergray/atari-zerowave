@@ -7,6 +7,8 @@
 ; of that row, so later waves can reuse the last mix without freezing progress.
 ; A separate late_spawn setting shortens the delay from level 10 onward, after
 ; two waves with the hexagon. Compare the displayed level before choosing delay.
+; From level 20, late_mix selects a ninth type row with a reinforced triangle;
+; cap and delay still use the established settings, independent of this row.
 
 ; LevelNumber is packed BCD 01..99. Higher numbers reuse the final spawn row;
 ; the kill quota grows independently until capped.
@@ -44,6 +46,11 @@ ConfigureLevel:
     asl
     asl
     asl
+    ldx LevelNumber
+    cpx #LATE_MIX_LEVEL
+    bcc .mix
+    lda #LATE_MIX_OFFSET
+.mix:
     sta LevelTypeOffset
     jsr CalculateQuota
     sta KillsRemaining

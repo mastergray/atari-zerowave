@@ -58,6 +58,7 @@ stella-check: all
 	$(PYTHON) tools/verify_levels_stella.py
 	$(PYTHON) tools/verify_density_stella.py
 	$(PYTHON) tools/verify_variants_stella.py
+	$(PYTHON) tools/verify_reinforced_stella.py
 
 clean:
 	$(PYTHON) -c 'import pathlib, shutil; [shutil.rmtree(p) for p in map(pathlib.Path, ("build", "dist")) if p.is_dir()]'

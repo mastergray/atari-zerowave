@@ -158,6 +158,46 @@ def page_safe_bytes(label, data):
             + byte_lines(label, data))
 
 
+def packed_tables(tables):
+    """Share identical subsequences and overlapping ends of setup tables.
+
+    Entries may be bytes or DASM expressions. Aliases still support the same
+    indexed reads, so unpacking adds no instructions to the frame preparation.
+    """
+    tables = [(name, tuple(values)) for name, values in tables]
+    blocks = list(dict.fromkeys(values for _, values in tables))
+    def offset(haystack, needle):
+        return next((i for i in range(len(haystack) - len(needle) + 1)
+                     if haystack[i:i + len(needle)] == needle), None)
+    blocks = [block for block in blocks
+              if not any(len(other) > len(block) and offset(other, block) is not None
+                         for other in blocks)]
+    while len(blocks) > 1:
+        best = (0, 0, 1)
+        for i, left in enumerate(blocks):
+            for j, right in enumerate(blocks):
+                if i == j:
+                    continue
+                for size in range(min(len(left), len(right)), best[0], -1):
+                    if left[-size:] == right[:size]:
+                        best = (size, i, j)
+                        break
+        size, i, j = best
+        joined = blocks[i] + blocks[j][size:]
+        blocks = [block for n, block in enumerate(blocks) if n not in (i, j)] + [joined]
+    data = blocks[0]
+    result = [f"; {sum(len(values) for _, values in tables)} lookup bytes packed into {len(data)}.\n",
+              "RenderLookupData:\n"]
+    for start in range(0, len(data), 16):
+        result.append("    .byte " + ",".join(f"${v:02x}" if isinstance(v, int) else v
+                                              for v in data[start:start + 16]) + "\n")
+    for name, values in tables:
+        index = offset(data, values)
+        assert index is not None
+        result.append(f"{name} = RenderLookupData+{index}\n")
+    return "".join(result)
+
+
 def hud_rows():
     rows = []
     for y in range(24):
@@ -238,7 +278,7 @@ def generate():
     burst_frames = len(BURSTS) * tuning["enemy_burst_stage_frames"]
     assert burst_frames < 128, "Burst and live feedback share a seven-bit lifetime"
     kinds = {kind["id"]: kind for kind in tuning["enemy_types"]}
-    assert set(kinds) == {0, 1, 2, 4, 5, 6, 7}
+    assert set(kinds) == set(range(8))
     assert 0 < tuning["hit_flash_frames"] < 128 and 0 < tuning["immune_flash_frames"] < 128
     assert tuning["immune_flash_frames"] % 6 == 0, "Three even stages preserve both draw phases"
     assert tuning["player_hit_stage_frames"] > 0 and tuning["player_hit_colors"]
@@ -255,6 +295,8 @@ def generate():
     assert kinds[0]["health"] == kinds[1]["health"] == kinds[4]["health"] == 1
     assert kinds[5]["health"] == 2 and 1 < kinds[2]["health"] <= 15
     assert kinds[6]["health"] == kinds[7]["health"] == 1
+    assert kinds[3]["health"] == 2 and kinds[3]["speed"] == kinds[0]["speed"]
+    assert kinds[3]["sprite"] == kinds[0]["sprite"] == 0
     assert kinds[4]["speed"] < kinds[6]["speed"] < kinds[1]["speed"]
     assert all(kind["speed"] < kinds[1]["speed"] for kind in kinds.values() if kind["id"] != 1)
     for kind in kinds.values():
@@ -288,6 +330,20 @@ def generate():
     assert 1 <= late_spawn["interval"] <= levels[-1]["spawn_interval"]
     constants.extend([f"LATE_SPAWN_LEVEL = ${late_spawn['start_level']:02}",
                       f"LATE_SPAWN_INTERVAL = {late_spawn['interval']}"])
+    late_mix = level_config["late_mix"]
+    assert late_spawn["start_level"] < late_mix["start_level"] <= 99
+    assert len(late_mix["types"]) == 8 and set(late_mix["types"]) <= set(kinds)
+    assert 3 in late_mix["types"] and all(3 not in row["types"] for row in levels)
+    constants.extend([f"LATE_MIX_LEVEL = ${late_mix['start_level']:02}",
+                      f"LATE_MIX_OFFSET = {len(levels) * 8}"])
+    reinforced = level_config["reinforced_diamond"]
+    assert late_mix["start_level"] < reinforced["start_level"] <= 99
+    assert kinds[2]["health"] == 3 and reinforced["health"] == 4
+    assert all(kind["health"] < reinforced["health"] for kind in kinds.values())
+    assert 0 < reinforced["color"] <= 255 and reinforced["color"] != kinds[2]["color"]
+    constants.extend([f"REINFORCED_DIAMOND_LEVEL = ${reinforced['start_level']:02}",
+                      f"REINFORCED_DIAMOND_HEALTH = {reinforced['health']}",
+                      f"COLOR_REINFORCED_DIAMOND = ${reinforced['color']:02x}"])
     quota = level_config["quota"]
     assert quota["step"] == 4  # two shifts in CalculateQuota
     assert quota["step"] <= quota["start"] <= quota["cap"] <= 255
@@ -304,7 +360,8 @@ def generate():
     constants.append(f"LEVEL_BREAK_FRAMES = {level_config['break_frames']}")
     level_tables = [byte_lines(label, [level[key] for level in levels])
                     for label, key in (("LevelCap", "cap"), ("LevelInterval", "spawn_interval"))]
-    level_tables.append(byte_lines("LevelTypes", [kind for level in levels for kind in level["types"]]))
+    level_tables.append(byte_lines("LevelTypes", [kind for level in levels for kind in level["types"]]
+                                  + late_mix["types"]))
     level_tables.append(byte_lines("LevelBackgroundColors", tuning["level_background_colors"]))
     (OUT / "levels.inc").write_text("".join(level_tables))
     audio_config = load_audio()
@@ -404,21 +461,36 @@ def generate():
                    "    ENDIF\n"])
     stages = [0] + [(burst_frames - timer) // tuning["enemy_burst_stage_frames"]
                     for timer in range(1, burst_frames + 1)]
-    render.append(byte_lines("BurstSpriteByTimer", [7 + stage for stage in stages]))
-    render.append(byte_lines("BurstColorByTimer", [tuning["enemy_burst_colors"][stage] for stage in stages]))
+    lookups = [("BurstSpriteByTimer", [7 + stage for stage in stages]),
+               ("BurstColorByTimer", [tuning["enemy_burst_colors"][stage] for stage in stages])]
     # Timer counts down. Zero is neutral; 16..13 select the smallest ring, etc.
-    render.append(byte_lines("BombPatternByTimer", [8] + [
+    lookups.append(("BombPatternByTimer", [8] + [
         9 + (animation_frames - timer) // tuning["bomb_stage_frames"]
         for timer in range(1, animation_frames + 1)]))
+    # Streams pack three per page in both ROMs. Canonicalize equivalent low
+    # bytes/page symbols before sharing table subsequences; no fixed bank address.
+    stream_names = list(streams.values())
+    def stream_address(label, operator):
+        index = stream_names.index(label)
+        return (index % 3) * 80 if operator == "<" else ">" + stream_names[index - index % 3]
     for plane, name in enumerate(("Left1", "Left2", "Right0", "Right1")):
         for operator, suffix in (("<", "Lo"), (">", "Hi")):
-            render.append(f"Pattern{name}{suffix}:\n    .byte " + ",".join(operator + labels[plane] for labels in references) + "\n")
+            lookups.append((f"Pattern{name}{suffix}", [stream_address(labels[plane], operator)
+                                                      for labels in references]))
     for name, key in (("BallKernelByPattern", "enabled"), ("BallInitialX", "initial_x"),
                       ("BallMinY", "min_y"), ("BallMaxY", "max_y")):
-        render.append(byte_lines(name, [ball[key] for ball in ball_patterns]))
+        lookups.append((name, [ball[key] for ball in ball_patterns]))
     for operator, suffix in (("<", "Lo"), (">", "Hi")):
-        render.append(f"BallMotion{suffix}:\n    .byte " + ",".join(operator + label for label in motion_labels) + "\n")
-        render.append(f"Graphic{suffix}:\n    .byte " + ",".join(operator + name for name, _ in SPRITES) + "\n")
+        lookups.append((f"BallMotion{suffix}", [stream_address(label, operator) for label in motion_labels]))
+        lookups.append((f"Graphic{suffix}", [(i % 2) * 88 if operator == "<" else ">" + SPRITES[i - i % 2][0]
+                                            for i in range(len(SPRITES))]))
+    health = [encode_row({24 + i * 3 for i in range(count)}) for count in range(6)]
+    for plane in (1, 2):
+        lookups.append((f"HealthMask{plane}", [row[plane + 3] for row in health]))
+    progress = [encode_row(set(range(4, 4 + step * 4))) for step in range(9)]
+    for label, plane in (("ProgressLeft1", 1), ("ProgressLeft2", 2), ("ProgressRight0", 3)):
+        lookups.append((label, [row[plane] for row in progress]))
+    render.append(packed_tables(lookups))
     setup = render
     render = ["; Bank 1 page-safe graphics. Each sprite window has eight rows.\n"]
     # Three 80-byte streams fit in a 256-byte page, preserving five-cycle
@@ -443,13 +515,9 @@ def generate():
         render.append(byte_lines(f"HudPlane{plane}", [row[plane] for row in hud], 32))
     render.append("    ELSE\n")
     setup.append("    IF DISPLAY_TEST = 0\n")
-    health = [encode_row({24 + i * 3 for i in range(count)}) for count in range(6)]
     for plane in (1, 2):
-        setup.append(byte_lines(f"HealthMask{plane}", [row[plane + 3] for row in health]))
-    for plane in (1, 2):
-        for operator, suffix in (("<", "Lo"), (">", "Hi")):
-            setup.append(f"HudStatus{plane}{suffix}:\n    .byte " +
-                          ",".join(f"{operator}HudText{mode}Left{plane}" for mode in range(3)) + "\n")
+        setup.append(f"HudStatus{plane}Lo:\n    .byte " +
+                     ",".join(f"<HudText{mode}Left{plane}" for mode in range(3)) + "\n")
     setup.append("    ENDIF\n")
     (OUT / "render_tables.inc").write_text("".join(setup))
     for mode, word in enumerate(("FIRE", "PLAY", "OVER")):
@@ -461,6 +529,8 @@ def generate():
                 render.append(f"{label} = HudText0Left{plane}\n")
             else:
                 render.append(page_safe_bytes(label, [row[plane] for row in rows]))
+    for label in ("HudText0Left2", "HudText2Left1", "HudText2Left2"):
+        render.append(f"    IF (>{label}) != (>HudText0Left1)\n        ERR\n    ENDIF\n")
     level_label = [encode_row({4 + i * 4 + bit for i, char in enumerate("LV")
                               for bit in range(3) if FONT[char][y] & (4 >> bit)})[1] for y in range(5)]
     render.append(page_safe_bytes("LevelLabel", level_label))
@@ -468,13 +538,10 @@ def generate():
     # LevelDigitOnes lives at $FFAA in each common bank tail, safely on one
     # page and below the $FFF8 hotspots. No labels: this include is used twice.
     shared = [int(f"{bits:03b}"[::-1], 2) << 4 for glyph in DIGITS for bits in glyph]
-    progress = [encode_row(set(range(4, 4 + step * 4))) for step in range(9)]
     for label, plane in (("ProgressLeft1", 1), ("ProgressLeft2", 2), ("ProgressRight0", 3),
                          ("ProgressRight1", 4), ("ProgressRight2", 5)):
         if plane >= 4:
             shared.extend(row[plane] for row in progress)
-        else:
-            render.append(byte_lines(label, [row[plane] for row in progress]))
     shared.extend(digit * 5 for digit in range(10))
     assert len(shared) == 78  # $FFAA..$FFF7, below the cartridge hotspots
     (OUT / "shared_hud.inc").write_text(byte_lines("", shared))
