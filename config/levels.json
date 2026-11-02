@@ -1,6 +1,7 @@
 {
   "break_frames": 32,
   "quota": {"start": 8, "step": 4, "cap": 64},
+  "late_spawn": {"start_level": 10, "interval": 4},
   "levels": [
     {"cap": 2, "spawn_interval": 24, "types": [4, 0, 4, 0, 0, 0, 0, 0]},
     {"cap": 4, "spawn_interval": 12, "types": [4, 1, 1, 0, 0, 0, 0, 0]},

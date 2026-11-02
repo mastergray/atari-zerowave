@@ -188,7 +188,7 @@ until level 15. Enemy, beam, and HUD colors stay unchanged. Red damage feedback 
 then restores it, including on game over. A new run resets to level 1 and black.
 At the displayed level cap of 99, the background stays on level 99’s color.
 
-| Level | Enemy mix / change | Cap | Kills | Spawn interval |
+| Level | Enemy mix / change | Cap | Kills | Minimum spawn delay |
 | --- | --- | ---: | ---: | ---: |
 | 1 | Standard triangles and squares | 2 | 8 | 0.4 s |
 | 2 | Adds fast magenta triangles | 4 | 12 | 0.2 s |
@@ -198,10 +198,13 @@ At the displayed level cap of 99, the background stays on level 99’s color.
 | 6 | Adds faster orange squares; greater diamond weight | 4 | 28 | 0.13 s |
 | 7 | Larger kill quota | 4 | 32 | 0.13 s |
 | 8 | Adds retaliating cyan hexagons; final enemy mix | 4 | 36 | 0.13 s |
-| 9–14 | Same mix; four more defeats per level | 4 | 40–60 | 0.13 s |
-| 15 onward | Quota reaches its cap | 4 | 64 | 0.13 s |
+| 9 | Same mix; larger kill quota | 4 | 40 | 0.13 s |
+| 10–14 | Faster arrivals; four more defeats per level | 4 | 44–60 | 0.067 s |
+| 15 onward | Quota reaches its cap | 4 | 64 | 0.067 s |
 
-Intervals are the minimum delay between successful spawns. The level cap,
+Smaller delays mean more frequent enemies when space is available. Levels 8–9
+give the hexagon two waves at the established pace; from level 10, the minimum
+delay drops from eight updates to four. The level cap,
 destruction bursts, bomb-only spacing, and safe sprite separation can defer them.
 Two vertically separated enemies share each draw phase. The spawner checks their
 approach times so both pairs remain drawable as they converge on the turret.
@@ -214,9 +217,10 @@ hexagons share the two-target limit from wave 2. A bomb damages every eligible
 target in range, so it can hit both squares together.
 Each level requires four more defeats: 8, 12, 16, 20, and so on, capped at 64
 from level 15 onward. The progress bar uses that level's full quota. Levels
-after 8 retain the final enemy mix, spawn interval, and four-enemy screen limit.
+after 8 retain the final enemy mix and four-enemy screen limit; the shorter delay
+from level 10 continues through level 99.
 The displayed number stops at 99 and play continues. The quota rule and spawn
-rows live in `config/levels.json`.
+rows and the `late_spawn` setting live in `config/levels.json`.
 
 ## Sound and Stella setup
 
@@ -277,7 +281,7 @@ appearances further.
 
 ## Validation and development
 
-`make check` runs 105 tests covering generated geometry, all joystick combinations,
+`make check` runs 106 tests covering generated geometry, all joystick combinations,
 button edges and exact cooldown boundaries, both startup banks, stack/guard
 integrity, fixed frame lengths, kernel write deadlines, and display fairness.
 Audio tests check exact TIA envelopes and expiry, simultaneous-event priority,
@@ -294,10 +298,12 @@ bursts for every surviving type, the 32-update celebration, score-bonus overlap,
 every background with all enemy types and simultaneous attacks, persistence
 beyond the former pulse duration, damage priority/restoration, restart/reset,
 quota growth/capping and palette cycling through all 99 BCD levels,
+the level-10 delay change and exact first/replacement spawn timing,
 the blank lower-right HUD, write deadlines, level 99 saturation, and a natural run through
 the opening four levels. Density tests cover all 2,401 four-target type combinations,
 both render phases, safe horizontal approaches through destruction bursts, and
-1,800 frames each of natural four-enemy spawning in levels 2, 6, and 8 without excess omissions.
+1,800 frames each of natural four-enemy spawning in levels 2, 6, and 8, plus
+2,400 frames at level 10, without excess omissions.
 Wave-bar checks cover every progress step at all quota sizes, over-quota debugger
 values, and exact raster deadlines. Bomb-only tests check all squares and hexagons against
 the cap and spacing, two armored targets dying to two ready bombs, and natural

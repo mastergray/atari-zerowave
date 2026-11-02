@@ -5,6 +5,8 @@
 ; Difficulty rows choose enemy mix, spawn interval and active cap. The displayed
 ; BCD level, growing kill quota and repeating background palette are independent
 ; of that row, so later waves can reuse the last mix without freezing progress.
+; A separate late_spawn setting shortens the delay from level 10 onward, after
+; two waves with the hexagon. Compare the displayed level before choosing delay.
 
 ; LevelNumber is packed BCD 01..99. Higher numbers reuse the final spawn row;
 ; the kill quota grows independently until capped.
@@ -45,13 +47,16 @@ ConfigureLevel:
     sta LevelTypeOffset
     jsr CalculateQuota
     sta KillsRemaining
+    lda LevelNumber
+    cmp #LATE_SPAWN_LEVEL
     lda LevelInterval,y
+    bcc .interval         ; LDA preserves carry from the packed-BCD level comparison
+    lda #LATE_SPAWN_INTERVAL
+.interval:
     sta SpawnInterval
+    ; The generator validates every cap as 1..4; TrySpawn also enforces the
+    ; validated display ceiling. Avoid duplicating that check in scarce ROM.
     lda LevelCap,y
-    cmp #(VALIDATED_ENEMY_CAP+1)
-    bcc .cap
-    lda #VALIDATED_ENEMY_CAP
-.cap:
     sta ActiveCap
     rts
 

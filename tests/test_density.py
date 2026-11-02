@@ -116,15 +116,18 @@ class DensityTests(unittest.TestCase):
         self.assertEqual(seen, {0, 1, 2})
 
     def test_later_levels_reach_four_and_never_hide_an_enemy_for_two_frames(self):
-        for level, expected in ((2, {0, 1, 4}), (6, {6}), (8, {6, 7})):
+        for level, expected in ((2, {0, 1, 4}), (6, {6}), (8, {6, 7}), (10, {6, 7})):
             m = self.game()
-            m.poke('LevelNumber', level)
+            m.poke('LevelNumber', int(str(level), 16))
             m.poke('GameMode', 3)
             m.poke('SpawnTimer', 1)
             self.frame(m)
             peak, first_four, previous = 0, None, set()
             last_draw, kinds = {}, set()
-            for frame in range(1800):
+            # The faster cadence changes the seeded random sequence: level 10's
+            # first orange square arrives after 1,800 updates. Observe 40 seconds
+            # there to cover both bomb-only types as well as density/visibility.
+            for frame in range(2400 if level >= 10 else 1800):
                 m.poke('Health', 5)  # keep observing unattended arrivals after contacts
                 self.frame(m)
                 live = {s for s in range(4) if m.value('EnemyFlags', s) & 0x80 or m.value('EnemyVisual', s)}

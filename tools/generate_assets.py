@@ -283,6 +283,11 @@ def generate():
     levels = level_config["levels"]
     assert 1 <= len(levels) <= 9  # BCD levels 01..09 index these rows directly
     assert 1 <= level_config["break_frames"] <= 255
+    late_spawn = level_config["late_spawn"]
+    assert len(levels) < late_spawn["start_level"] <= 99
+    assert 1 <= late_spawn["interval"] <= levels[-1]["spawn_interval"]
+    constants.extend([f"LATE_SPAWN_LEVEL = ${late_spawn['start_level']:02}",
+                      f"LATE_SPAWN_INTERVAL = {late_spawn['interval']}"])
     quota = level_config["quota"]
     assert quota["step"] == 4  # two shifts in CalculateQuota
     assert quota["step"] <= quota["start"] <= quota["cap"] <= 255

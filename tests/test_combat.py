@@ -1411,7 +1411,8 @@ class CombatTests(unittest.TestCase):
         self.assertIn((4, 5), square_pairs, "Natural play must admit a square beside armor")
 
     def test_level_rows_load_preserving_run_state_and_reset_effects(self):
-        levels = assets.load_levels()["levels"]
+        config = assets.load_levels()
+        levels = config["levels"]
         for number in range(1, 100):
             m = self.game()
             m.poke("LevelNumber", int(str(number), 16))
@@ -1427,17 +1428,42 @@ class CombatTests(unittest.TestCase):
             self.enemy(m, 0, 2, 30)
             m.call("LoadLevel")
             row = levels[min(number, len(levels)) - 1]
+            interval = (config["late_spawn"]["interval"]
+                        if number >= config["late_spawn"]["start_level"] else row["spawn_interval"])
             self.assertEqual(m.value("LevelTypeOffset"), (min(number, len(levels)) - 1) * 8)
             self.assertEqual(m.value("KillsRemaining"), min(8 + 4 * (number - 1), 64))
             self.assertEqual(m.value("ActiveCap"), min(row["cap"], 4))
-            self.assertEqual(m.value("SpawnInterval"), row["spawn_interval"])
-            self.assertEqual(m.value("SpawnTimer"), row["spawn_interval"])
+            self.assertEqual(m.value("SpawnInterval"), interval)
+            self.assertEqual(m.value("SpawnTimer"), interval)
             self.assertEqual((m.value("Health"), self.score(m), m.value("RandomState")), (3, 1234, 0x51))
             self.assertEqual((m.value("PreviousButtons"), m.value("BeamArmed")), (128, 0))
             for name in ("BombCooldown", "BombTimer", "SquareTimer", "PlayerHitTimer", "BeamFadeTimer",
                          "ShotSoundTimer", "EventSoundId", "EventSoundTimer", "SoundRequest", "ActiveCount"):
                 self.assertEqual(m.value(name), 0, name)
             self.assertEqual(bytes(m.bus.ram[:32]), bytes(32))
+
+    def test_faster_spawns_start_at_level_ten_and_keep_the_final_mix(self):
+        for level, delay in ((8, 8), (9, 8), (10, 4), (11, 4), (99, 4)):
+            with self.subTest(level=level):
+                m = self.game()
+                m.poke("LevelNumber", int(str(level), 16))
+                m.poke("GameMode", 3)
+                m.poke("SpawnTimer", 1)
+                self.frame(m)
+                self.assertEqual(m.value("LevelTypeOffset"), 7 * 8)
+                self.assertEqual(m.value("ActiveCap"), 4)
+                # Both the first arrival and a replacement must wait the exact
+                # delay. Clear the previous slot to isolate cadence from spacing.
+                for _ in range(2):
+                    for slot in range(4):
+                        m.poke("EnemyFlags", 0, slot)
+                        m.poke("EnemyVisual", 0, slot)
+                    for _ in range(delay - 1):
+                        self.frame(m)
+                        self.assertEqual(m.value("ActiveCount"), 0)
+                    self.frame(m)
+                    self.assertEqual(m.value("ActiveCount"), 1)
+                    self.assertEqual(m.value("SpawnTimer"), delay)
 
     def test_level_quota_counts_kills_only_and_multi_kills_saturate(self):
         m = self.game()
@@ -1641,6 +1667,8 @@ class CombatTests(unittest.TestCase):
             self.assertEqual(self.finish_wave(m), 33)
             self.assertEqual(m.value("LevelNumber"), int(str(expected), 16))
             self.assertEqual(m.value("KillsRemaining"), min(8 + 4 * (expected - 1), 64))
+            delay = 4 if expected >= 10 else assets.load_levels()["levels"][min(expected - 1, 7)]["spawn_interval"]
+            self.assertEqual((m.value("SpawnInterval"), m.value("SpawnTimer")), (delay, delay))
             for _ in range(60):
                 self.frame(m)
             self.assertEqual(m.value("GameMode"), 1)

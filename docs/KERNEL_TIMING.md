@@ -2,11 +2,12 @@
 
 This records the playable four-enemy variant prototype with flick-to-fire beams, levels, and
 the separate static display-test ROM. CPU/register measurements come from the assembled F8 cartridges and the py65
-harness. The current quota-growth build has 81 Stella 6.0.2 screenshots captured
+harness. The reference quota-growth build has 81 Stella 6.0.2 screenshots captured
 with SDL dummy video. Earlier references include 37 late-variant scenes and
 32 four-target density captures. Each snapshot directory retains its ROM;
 each sound capture below records the ROM hash it used.
-Television readability and the full X11 debugger transcript
+The level-10 pacing update is verified with CPU/register tests; those existing
+screenshots retain their original ROM hashes. Television readability and the full X11 debugger transcript
 pass remain separate from those still-image checks.
 
 ## Frame layout
@@ -431,7 +432,10 @@ Multi-kills saturate the old quota without credit toward the new quota.
 For debugger fixtures, mode 3 with a positive quota and countdown still loads
 the requested level without incrementing it. RESET works before or during the
 celebration. Wave 1 retains a cap of two and a 24-update spawn interval; wave 2
-has four and 12 updates, falling to eight updates at wave 5. Type speeds are
+has four and 12 updates, falling to eight updates at wave 5 and four updates
+from wave 10 onward. Waves 8–9 retain the established pace when hexagons first
+appear. The generator emits a separate BCD threshold and delay from `late_spawn`;
+the final type row still serves every wave after 8. Type speeds are
 unchanged. The completion sequence does not require full health and does not
 replace the separate 1,000-point rewards.
 
@@ -450,23 +454,26 @@ script retained. Register tests assert the 32-update cue and yellow phases.
 | RAM | Fixed 128-byte map, including reserves and stack |
 | Stack | Eight bytes observed; 16 reserved |
 | Guard | Eight bytes at `$E8–$EF`, intact in tested runs |
-| Update cost | 288–1,874 cycles from `GameFrame` to `LogicDone` |
+| Update cost | 288–1,875 cycles from `GameFrame` to `LogicDone` |
 | Render preparation done | 1,620–2,380 cycles from VSYNC line start |
 
-All 105 tests pass (76 combat and 29 density/diagnostic). The quota-growth
-checks extend loading through all 99 displayed levels and
-progress rendering through every supported quota, including 09/10, 14/15/16,
-and the capped later levels. The previous wave-clear build's evidence is retained
-in `build/wave-clear-validation.json`; the current run is recorded in
-`build/quota-growth-validation.json` with its ROM hash, logs, timings, and
-81 Stella screenshots.
+The suite contains 106 tests (77 combat and 29 density/diagnostic). Loading
+checks cover all 99 displayed levels, including the shorter delay from level 10;
+progress rendering covers every supported quota, including 09/10, 14/15/16,
+and the capped later levels. The late-spawn validation is recorded in
+`build/late-spawn-validation.json`, including the full suite and targeted
+boundary/rollover and natural-density reruns. Previous evidence remains in
+`build/wave-clear-validation.json` and `build/quota-growth-validation.json`;
+the latter retains the reference ROM and its 81 Stella screenshots.
 
-The combat suite records 18,219 frame samples in `build/combat-timing.json`,
+The combat suite records 18,224 frame samples in `build/combat-timing.json`,
 including a survival run of at least 1,400 frames across the five early types, movement/attack/contact boundaries, scoring,
 spawning, immunity/hit feedback, destruction bursts, HUD values, and restart.
 A second natural run completes the first four levels with all early variants seen and
 no player damage. Fixtures check quotas, completion clears, carry/saturation at levels
-09/10/99, per-row spawning, input history, and death/reset priority.
+09/10/99, per-row spawning, input history, and death/reset priority. The focused
+rerun adds 828 samples in `build/late-spawn-boundary-timing.json`, checking exact
+first/replacement delays at levels 8/9/10/11/99 and wave-boundary countdowns.
 The full-health-clear test includes 56 fixtures combining movement, both attacks,
 all survivor types, a due spawn, and 09/10 or saturated-99 wave advancement.
 Another 168 fixtures combine a hexagon in every slot with movement, a fresh
@@ -522,9 +529,11 @@ space requirement, reconstruct actual sprite rows and HMOVE positions, exercise
 all beam/ring patterns on both paired phases, and check natural four-enemy
 visibility through repeated center arrivals. Additional fixtures exercise all
 2,401 four-target type combinations under simultaneous beam/bomb damage.
-`build/density-timing.json` records another 12,417 frames, including the busy
-four-target cases, 96 idle-warning layouts, and 1,800 updates each of natural
-spawning in levels 2, 6, and 8. Every live enemy remains visible at least every
+`build/density-timing.json` records the busy four-target cases, 96 idle-warning
+layouts, and natural spawning. The final natural-density rerun is recorded in
+`build/late-spawn-density-timing.json`: 1,800 updates each in levels 2, 6, and 8,
+plus 2,400 at level 10 to include both late bomb-only types in the seeded run.
+Every live enemy remains visible at least every
 other frame, and every level reaches four within 120 updates.
 
 A deterministic October 28 comparison, before allowing paired squares, ran

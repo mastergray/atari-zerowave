@@ -418,12 +418,14 @@ wasted bomb.
 ## Level data and increasing density
 
 `config/levels.json` contains the quota rule (`start=8`, `step=4`, `cap=64`)
-and spawn rows with `cap`, `spawn_interval`, and eight weighted `types`.
+and spawn rows with `cap`, `spawn_interval`, and eight weighted `types`. The
+separate `late_spawn` setting (`start_level=10`, `interval=4`) overrides the
+minimum spawn delay after the final enemy-mix row without duplicating that row.
 Quota is `min(8 + 4 * (decimal level - 1), 64)`, independent of the spawn row.
 Generated spawn tables keep the tested type profiles and speeds. Current
 progression settings prioritize a full arena and quick replacement of kills:
 
-| Level | Cap | Kill quota | Spawn interval (updates) | Weights: triangle / fast triangle / diamond / square / armor / fast square / hexagon |
+| Level | Cap | Kill quota | Minimum spawn delay (updates) | Weights: triangle / fast triangle / diamond / square / armor / fast square / hexagon |
 | --- | ---: | ---: | ---: | --- |
 | 1 | 2 | 8 | 24 | 6 / 0 / 0 / 2 / 0 / 0 / 0 |
 | 2 | 4 | 12 | 12 | 5 / 2 / 0 / 1 / 0 / 0 / 0 |
@@ -433,8 +435,9 @@ progression settings prioritize a full arena and quick replacement of kills:
 | 6 | 4 | 28 | 8 | 2 / 2 / 2 / 0 / 1 / 1 / 0 |
 | 7 | 4 | 32 | 8 | 2 / 2 / 2 / 1 / 0 / 1 / 0 |
 | 8 | 4 | 36 | 8 | 2 / 2 / 2 / 0 / 0 / 1 / 1 |
-| 9–14 | 4 | 40–60 (four more each level) | 8 | 2 / 2 / 2 / 0 / 0 / 1 / 1 |
-| 15 onward | 4 | 64 | 8 | 2 / 2 / 2 / 0 / 0 / 1 / 1 |
+| 9 | 4 | 40 | 8 | 2 / 2 / 2 / 0 / 0 / 1 / 1 |
+| 10–14 | 4 | 44–60 (four more each level) | 4 | 2 / 2 / 2 / 0 / 0 / 1 / 1 |
+| 15 onward | 4 | 64 | 4 | 2 / 2 / 2 / 0 / 0 / 1 / 1 |
 
 All weights are out of eight, before bomb-only spacing/cap restrictions. Enemy
 speeds remain unchanged across these rows. Armor therefore retains about 205
@@ -443,12 +446,17 @@ The orange square has about 85 updates in bomb range and needs only one bomb.
 Orange squares first appear in level 6, hexagons in level 8. These substitutions
 retain the two bomb-only entries per eight-entry late-wave table; cap, quota,
 spawn interval, and bomb cooldown are unchanged by the new variants.
-The loader clamps requested caps to `VALIDATED_ENEMY_CAP=4`. After the
-completion clear, new spawns use the next level's type mix.
+The generator validates every cap as 1..4; `TrySpawn` independently enforces
+`VALIDATED_ENEMY_CAP=4`. The loader uses those validated caps directly to save
+ROM space for the late-level delay selection. After the completion clear, new
+spawns use the next level's type mix and delay.
 
 Store the displayed level as packed BCD `01..99`; increment with decimal mode
 only for that operation, then clear it. After level 8, reuse the final spawn row;
-quotas keep growing through level 15 and then stay at 64.
+compare the displayed BCD level with the generated `LATE_SPAWN_LEVEL` to select
+the shorter delay from level 10. Levels 8–9 keep eight updates between eligible
+arrivals, allowing time to learn the hexagon before the pace changes. Quotas keep
+growing through level 15 and then stay at 64.
 Level 99 repeats indefinitely without wrapping or indexing beyond the tables.
 The row's type offset is eight times its zero-based index, allowing a random
 three-bit selection without a multiplication or indirect pointer at spawn time.
