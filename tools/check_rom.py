@@ -47,6 +47,8 @@ def check(display=False):
             assert (address & 255) + 23 < 256, f"Page crossing: {name}"
         elif name.startswith("HudText"):
             assert (address & 255) + 4 < 256, f"Page crossing: {name}"
+        elif name.startswith("HudOverRight"):
+            assert (address & 255) + 9 < 256, f"Page crossing: {name}"
         elif name in ("DigitLeft", "DigitRight", "LevelDigitTens", "LevelDigitOnes"):
             assert (address & 255) + 49 < 256, f"Page crossing: {name}"
         elif name in ("ReuseMotion", "ReuseRemainder"):

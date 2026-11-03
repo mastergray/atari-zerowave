@@ -1,0 +1,38 @@
+<!doctype html>
+<!-- SPDX-FileCopyrightText: 2026 mastergray
+     SPDX-License-Identifier: GPL-3.0-only -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Play ZeroWave, an Atari 2600 game of directional beams and expanding bombs.">
+  <title>Play ZeroWave</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="player.css">
+  <script src="rom-version.js" defer></script>
+  <script src="player.js" defer></script>
+</head>
+<body>
+  <main class="screen" aria-label="ZeroWave game player">
+    <div id="game"></div>
+    <section id="launch" class="launch" aria-label="Start ZeroWave">
+      <div class="launch-content">
+        <img class="cover-art" src="img/Zerowave_%20Insectoid%20Swarm%20Assault.png"
+          width="1087" height="1447" fetchpriority="high" draggable="false"
+          alt="ZeroWave cover art: an alien insect swarm descending on a lone defense station firing into space.">
+        <div class="launch-actions">
+          <div id="start-action" class="start-action">
+            <p class="start-placeholder" role="status">LOADING...</p>
+          </div>
+          <p id="start-note" class="controls">
+            <span>ARROWS: BEAM</span><span>SPACE: START/BOMB</span><span>ENTER: RESET</span>
+          </p>
+        </div>
+      </div>
+    </section>
+    <p id="status" class="notice" role="status" aria-live="polite"></p>
+    <noscript><p class="notice error">Enable JavaScript to play ZeroWave in your browser.</p></noscript>
+  </main>
+</body>
+</html>

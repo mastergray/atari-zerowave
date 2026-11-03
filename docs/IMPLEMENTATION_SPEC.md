@@ -308,7 +308,7 @@ reserve byte and does not change the sprite schedule.
 | `TITLE` | Turret/title mark and start cue; no combat or spawns | Fresh fire press or RESET starts a run |
 | `PLAY` | Input, movement, attacks, contacts, spawning, scoring | HP zero goes to `GAME_OVER`; cleared quota enters `LEVEL_BREAK` |
 | `LEVEL_BREAK` | Full green bar, frozen combat, survivor bursts and the all-clear cue | After 32 celebration updates, increment and load the next level |
-| `GAME_OVER` | Freeze final score; silence beam, play death cue | Fresh fire press or RESET starts a run |
+| `GAME_OVER` | Retain/display final score and level with OVER; silence beam, play death cue | Fresh fire press or RESET starts a run and resets results |
 
 A fresh run sets level 1, HP 5, score zero, bomb ready, empty enemy pool, cleared effect timers, and a deterministic nonzero random seed. It loads the first level row and starts its spawn countdown. It does not consume an attack from the start/reset input.
 
@@ -561,9 +561,11 @@ The normal X11 debugger-state pass remains available locally.
 ## HUD and sound
 
 Display four score digits and five health marks above `LV01`, the current level.
-The rest of the status row stays blank; numeric kills remaining and bomb readiness
-are not displayed. All upper-HUD graphics are white. Title/game-over use
-`FIRE`/`OVER` in place of the level label.
+The right half of the status row stays blank during play; numeric kills remaining
+and bomb readiness are not displayed. All upper-HUD graphics are white. The title
+uses `FIRE` in place of the level label. Game over retains the final score and
+`LV` number and draws `OVER` on the right. Results reset only when a fresh fire
+or RESET press starts a new run; held fire cannot skip the results.
 A thin green progress bar fills left to right in eight steps below the arena;
 a dim gray rail marks its full extent. Its fill is
 `floor(8 * max(0, quota - remaining) / quota)`. The internal remaining count includes
@@ -642,12 +644,14 @@ work must revise allocations or lifetimes before adding persistent state.
 
 The 24 renderer bytes currently hold four two-byte playfield pointers, a two-byte sprite pointer, selected slot, HUD color, arena color, display-pattern ID, four beam visual bytes (fade timer, frozen hue, draw direction, draw color), a two-byte ball-motion pointer, two ball row bounds, a kernel selector, and the level type-table offset. The four former age bytes at `$98–$9B` hold the second draw descriptor; `$E6` holds the split row. Render selection finishes before HUD preparation overwrites its scratch. Scratch can be reused only across nonoverlapping lifetimes; record clobbered registers and scratch in each routine's header. ROM switching does not preserve a second copy of RAM.
 
-During play, the two HUD status pointers select ROM glyphs for the level's tens
+During play and game over, the two HUD status pointers select ROM glyphs for the level's tens
 and ones digits. After the top score row finishes, `PrepareProgress` reuses the
 five right-score bytes as `HudProgress`, holding five playfield masks. A fixed
 seven-line blank gap preserves the established HUD/arena positions. Status rows
 follow at visible lines 19–28. The status scanline combines level digits through
-`Temp` and clears the right half. Title/game-over use the original text pointers.
+`Temp` and draws either blank rows or `OVER` on the right. Only the title uses
+the `FIRE` text pointers. X selects rows 0–4 (blank) or 5–9 (`OVER`) from two
+page-safe ten-byte tables; it advances once per doubled font row, using no RAM.
 Both level loading and progress preparation call `CalculateQuota`, preserving
 X/Y and scratch. It caps at BCD `$15` before converting levels 10–14 to binary,
 then uses two shifts and an offset for the four-per-level rule. Generation
@@ -659,8 +663,8 @@ the rail/fill on visible lines 190/191, after the arena. Footer entry clears bot
 sprites and the ball; outside play it clears all playfield registers for both
 footer lines. The arena starts at visible line 30 (frame line 70).
 Font tables pad only when an indexed read would cross a page. No new HUD RAM is allocated.
-FIRE/OVER pointer high bytes share one constant; assembler assertions require
-all four text fragments to remain on the same page.
+FIRE pointer high bytes share one constant; an assembler assertion requires
+both text fragments to remain on the same page.
 
 The generator shares identical subsequences and overlapping ends of renderer
 setup, health, and progress tables: 296 logical lookup bytes occupy 254 ROM bytes.

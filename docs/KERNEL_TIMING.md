@@ -17,7 +17,7 @@ pass remain separate from those still-image checks.
 | --- | ---: | --- |
 | VSYNC | 3 | Vertical synchronization |
 | VBLANK | 37 | Sound output, HUD preparation, beam/ring pointers, enemy selection and positioning |
-| Top HUD | 29 | Score/health and FIRE/OVER or LV01 |
+| Top HUD | 29 | Score/health and FIRE or LV01; final level plus OVER after death |
 | Separator | 1 | Clear HUD graphics; prepare arena |
 | Arena | 160 | 80 logical rows, each drawn twice |
 | Footer | 2 | Wave-progress rail/fill during play and wave clears; blank on title/game over |
@@ -42,8 +42,9 @@ models the behavior in [Stella's RIOT implementation](https://github.com/stella-
 ## Playable HUD
 
 HUD lines 0–1 and 12–18 are blank. Lines 2–11 display four score digits on the
-left and health marks on the right; lines 19–28 display FIRE/OVER, or `LV01`
-during play. The right half of the status row is blank in every mode. Numeric
+left and health marks on the right; lines 19–28 display FIRE on the title or
+`LV01` during play. Game over keeps the final score and level, with `OVER` on
+the right of the level. The right half is blank in other modes. Numeric
 kills remaining and bomb readiness are no longer drawn; all top-HUD graphics stay white.
 Each font row lasts two lines.
 Visible line 29 clears the playfield and prepares the arena. Lines 30–189 draw
@@ -56,8 +57,8 @@ The diagnostic ROM retains its TEST/BOMB header.
 | Region | Left PF1 / PF2 completion | Right PF1 / PF2 completion | Color |
 | --- | --- | --- | --- |
 | Score and health | Cycles 12 / 19 | Cycles 43 / 53 | White at cycle 5 |
-| Title/game-over | Cycles 13 / 21 | Clear at cycles 40 / 51 | White at 5 |
-| Level | Cycles 17 / 36 | Clear at cycles 41 / 50 | White at 10 |
+| Title | Cycles 13 / 21 | Clear at cycles 40 / 51 | White at 5 |
+| Level / game-over results | Cycles 17 / 36 | Blank or OVER at cycles 43 / 50 | White at 10 |
 | Progress rail | Cycles 22 / 25 | PF1 retained / PF2 at 59 | Gray at 17; right PF0 at 30 |
 | Progress fill | Cycles 16 / 22 | Cycles 46 / 52 | Green at 10; right PF0 at 40 |
 
@@ -67,14 +68,16 @@ bytes and selects two status pointers. These occupy `$D8–$E5` only during
 display; input and spawn scratch can reuse them during overscan after the last
 visible line. The input history is committed before HUD preparation overwrites
 the samples. Health masks use two previously reserved audio bytes.
-FIRE/OVER pointers share one immediate high byte instead of two lookup tables;
-assembly asserts that all four text fragments stay on the same page. Their
-separate low-byte tables still select the appropriate fragments.
+FIRE pointers share one immediate high byte; assembly asserts that both text
+fragments stay on the same page. Their low bytes are immediate constants.
 
-For play and wave completion (mode 3), status pointers select the level's tens
+For play, wave completion (mode 3), and game over, status pointers select the level's tens
 and ones glyphs from page-safe 50-byte tables. The tens table aliases the score's
 reversed digit font. The status scanline combines these through `Temp` and draws
 the fixed `LV` label. PF2 completes at cycle 36, before its left-half display begins.
+Two ten-byte tables provide blank rows 0–4 and OVER rows 5–9 on the right.
+X selects the starting row by mode and advances once per doubled font row.
+Page-safe absolute indexed loads preserve fixed four-cycle reads and need no RAM.
 
 After the top score/health rows finish, `PrepareProgress` reuses five right-score
 bytes as `HudProgress` playfield masks. The numeric remaining-count conversion,
@@ -85,7 +88,9 @@ preparation gap at seven scanlines, preserving the established layout. No RAM is
 added. Font tables use page-safe packing rather than blanket alignment to recover
 ROM space. Tests check every status write at its exact cycle for representative
 levels, including 09/10/99, and require a blank right half across quota/cooldown
-values and on title/game-over screens. Progress
+values and on the title. Game-over checks retain the final score/level past the
+death cue, verify OVER's right-hand pixels, and exercise held fire, a fresh
+restart, and RESET. Progress
 tests cover every remaining count at each quota size, 99/255, and the exact bar
 write schedule. Moving the bar to the footer shifts the arena up two scanlines,
 preserving its size, the 192-line visible region, and the 262-line total frame.
@@ -467,7 +472,7 @@ script retained. Register tests assert the 32-update cue and yellow phases.
 
 | Resource | Current measurement |
 | --- | --- |
-| Bank 0 end / room before trampoline | `$FF7B` / 5 bytes |
+| Bank 0 end / room before trampoline | `$FF7E` / 2 bytes |
 | Bank 1 end / room before trampoline | `$FF00` / 128 bytes |
 | Cartridge | 8,192 bytes, identical bank tails and vectors |
 | RAM | Fixed 128-byte map, including reserves and stack |
@@ -476,17 +481,19 @@ script retained. Register tests assert the 32-update cue and yellow phases.
 | Update cost | 288–1,889 cycles from `GameFrame` to `LogicDone` |
 | Render preparation done | 1,620–2,380 cycles from VSYNC line start |
 
-The suite contains 110 tests (81 combat and 29 density/diagnostic). Loading
+The suite contains 111 tests (82 combat and 29 density/diagnostic). Loading
 checks cover all 99 displayed levels, including the shorter delay from level 10,
 the type-row change at level 20, and reinforced diamond spawns from level 25;
 progress rendering covers every supported quota, including 09/10, 14/15/16,
-and the capped later levels. Current validation is recorded in
-`build/reinforced-validation.json`, including ROM hashes, suite results, timing,
-and the 27 Stella captures. Previous evidence remains in
+and the capped later levels. Current CPU/register and browser-cache validation
+is recorded in `build/game-over-validation.json`, including the ROM hash,
+suite results, and timing. The prior `build/reinforced-validation.json` retains
+its ROM hashes and 27 Stella captures; those captures predate the game-over HUD
+change. Previous evidence also remains in
 `build/late-spawn-validation.json`, `build/wave-clear-validation.json`, and `build/quota-growth-validation.json`;
 the latter retains the reference ROM and its 81 Stella screenshots.
 
-The combat suite records 20,025 frame samples in `build/combat-timing.json`,
+The combat suite records 20,404 frame samples in `build/combat-timing.json`,
 including a survival run of at least 1,400 frames across the five early types, movement/attack/contact boundaries, scoring,
 spawning, immunity/hit feedback, destruction bursts, HUD values, and restart.
 A second natural run completes the first four levels with all early variants seen and
@@ -495,6 +502,9 @@ no player damage. Fixtures check quotas, completion clears, carry/saturation at 
 New fixtures test two fresh beam hits on violet triangles, bomb immunity,
 four separate beam/bomb/mixed hits on reinforced diamonds, held-input rejection,
 gold-to-blue appearance, feedback priority, and exact first/replacement delays.
+Game-over fixtures retain scores and levels 09/25/99 for 60 updates while fire
+is held, check the final level/OVER raster, and reset results only on a fresh
+fire press or RESET. Existing score-raster checks also cover zero health.
 The full-health-clear test includes 64 fixtures combining movement, both attacks,
 all survivor types, a due spawn, and 09/10 or saturated-99 wave advancement.
 Another 192 fixtures combine a hexagon in every slot with movement, a fresh

@@ -116,6 +116,8 @@ UpdateGame:
     jsr ScanEnemies
     lda #MODE_GAME_OVER
     sta GameMode
+    ; Final score and level remain available to the HUD until StartRun clears
+    ; them on a fresh fire/RESET press; the death cue never resets the results.
     jsr ClearWeapons
     lda #SFX_DEATH
     jsr RequestSound

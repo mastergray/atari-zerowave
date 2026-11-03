@@ -5,13 +5,15 @@ PYTHON ?= python3
 DASM ?= .tools/dasm-src/src/dasm
 STELLA ?= stella
 STELLA_AUDIO ?= -audio.enabled 1
+WEB_PORT ?= 8000
+WEB_BIND ?= 0.0.0.0
 ROM := build/atari-zerowave.bin
 DISPLAY_ROM := build/atari-zerowave-display.bin
 DIST_ROM := dist/zerowave.bin
 GENERATED := build/generated/assets.stamp
 SOURCE := $(wildcard src/*.asm src/*.inc) vendor/dasm/vcs.h
 
-.PHONY: all bootstrap dist check test run run-display debug stella-check clean
+.PHONY: all bootstrap dist check test run serve run-display debug stella-check clean
 all: $(ROM) $(DISPLAY_ROM) dist
 
 bootstrap:
@@ -45,6 +47,12 @@ test: check
 
 run: all
 	$(STELLA) $(STELLA_AUDIO) -type F8 -format NTSC -lc JOYSTICK -rc JOYSTICK -tv.phosphor byrom -pp NO $(ROM)
+
+# Serve the checked-in release without requiring an assembler or a rebuild.
+serve:
+	@echo "Listening on $(WEB_BIND):$(WEB_PORT) (Ctrl+C stops the server)."
+	@echo "Desktop: http://127.0.0.1:$(WEB_PORT)/web/ | Mobile: http://<computer-LAN-IP>:$(WEB_PORT)/web/"
+	$(PYTHON) -m http.server $(WEB_PORT) --bind $(WEB_BIND)
 
 debug: all
 	$(STELLA) $(STELLA_AUDIO) -debug -type F8 -format NTSC -lc JOYSTICK $(ROM)

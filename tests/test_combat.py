@@ -77,6 +77,23 @@ class CombatTests(unittest.TestCase):
         m.poke("ScoreHi", (score // 1000) * 16 + score // 100 % 10)
         m.poke("ScoreLo", (score // 10 % 10) * 16 + score % 10)
 
+    def assert_level_hud(self, m, level, game_over=False):
+        origin = m.bus.vsync_edges[-1] // 76 * 76
+        for line in range(10):
+            row = line // 2
+            cells = {4 + i * 4 + bit for i, letter in enumerate("LV")
+                     for bit in range(3) if assets.FONT[letter][row] & (4 >> bit)}
+            cells.update(12 + i * 4 + bit for i, digit in enumerate(f"{level:02}")
+                         for bit in range(3) if assets.DIGITS[int(digit)][row] & (4 >> bit))
+            if game_over:
+                cells.update(24 + i * 4 + bit for i, letter in enumerate("OVER")
+                             for bit in range(3) if assets.FONT[letter][row] & (4 >> bit))
+            values = assets.encode_row(cells)
+            writes = [(cy % 76, reg, value) for cy, reg, value in m.bus.events
+                      if (cy - origin) // 76 == 59 + line and reg in (0x0d, 0x0e, 0x0f, 0x08)]
+            self.assertEqual(writes, [(5,0x0d,0),(10,0x08,14),(17,0x0e,values[1]),(36,0x0f,values[2]),
+                                      (43,0x0e,values[4]),(50,0x0f,values[5])])
+
     def test_score_healing_crosses_each_thousand_exactly_once_with_health_cap(self):
         for threshold in range(1000, 10000, 1000):
             for hp in (1, 4, 5):
@@ -1322,6 +1339,32 @@ class CombatTests(unittest.TestCase):
         self.frame(m, fire=True, reset=True)
         self.assertEqual(m.value("BombCount"), 0)
 
+    def test_game_over_keeps_final_results_until_fresh_start_or_reset(self):
+        for level, score in ((9, 875), (25, 4321), (99, 9999)):
+            for reset in (False, True):
+                with self.subTest(level=level, score=score, reset=reset):
+                    m = self.game()
+                    m.poke("LevelNumber", int(str(level), 16))
+                    self.set_score(m, score)
+                    m.poke("Health", 1)
+                    m.poke("BombCooldown", 30)
+                    self.enemy(m, 0, 0, 8, square=True)
+                    self.frame(m, fire=True)  # fatal contact while fire is held
+                    for _ in range(60):  # results outlast the death sound/flash
+                        self.frame(m, 8, fire=True)
+                        self.assertEqual(m.value("GameMode"), 2)
+                        self.assertEqual(self.score(m), score)
+                        self.assertEqual(m.value("LevelNumber"), int(str(level), 16))
+                        self.assertEqual(m.value("Health"), 0)
+                    self.assert_level_hud(m, level, game_over=True)
+                    if not reset:
+                        self.frame(m)  # a held button must not skip the results
+                    self.frame(m, fire=True, reset=reset)
+                    self.assertEqual((m.value("GameMode"), self.score(m), m.value("LevelNumber")), (1, 0, 1))
+                    self.assertEqual((m.value("Health"), m.value("BombCount")), (5, 0))
+                    self.assertEqual((m.value("BeamEvent"), m.value("BombEvent")), (0, 0))
+                    self.assert_level_hud(m, 1)
+
     def test_combat_bomb_cooldown_is_exact_and_select_has_no_effect(self):
         m = self.game()
         self.frame(m, fire=True)
@@ -1783,19 +1826,8 @@ class CombatTests(unittest.TestCase):
                 m.poke("SpawnTimer", 60)
                 m.poke("BombCooldown", 10 if remaining & 1 else 0)
                 self.frame(m)
-                origin = m.bus.vsync_edges[-1] // 76 * 76
-                for line in range(10):
-                    row = line // 2
-                    cells = {4 + i * 4 + bit for i, letter in enumerate("LV")
-                             for bit in range(3) if assets.FONT[letter][row] & (4 >> bit)}
-                    cells.update(12 + i * 4 + bit for i, digit in enumerate(f"{level:02}")
-                                 for bit in range(3) if assets.DIGITS[int(digit)][row] & (4 >> bit))
-                    values = assets.encode_row(cells)
-                    writes = [(cy % 76, reg, value) for cy, reg, value in m.bus.events
-                              if (cy - origin) // 76 == 59 + line and reg in (0x0d, 0x0e, 0x0f, 0x08)]
-                    self.assertEqual(writes, [(5,0x0d,0),(10,0x08,14),(17,0x0e,values[1]),(36,0x0f,values[2]),
-                                              (41,0x0e,0),(50,0x0f,0)])
-        for mode, word in ((0, "FIRE"), (2, "OVER")):
+                self.assert_level_hud(m, level)
+        for mode, word in ((0, "FIRE"),):
             m = self.game()
             m.poke("GameMode", mode)
             self.frame(m)

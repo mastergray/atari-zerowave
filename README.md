@@ -52,6 +52,66 @@ can be selected with `make DASM=/path/to/dasm`.
 Make is optional for launching an existing ROM: open the `.bin` in Stella or run
 `stella -audio.enabled 1 build/atari-zerowave.bin`. `make run` also rebuilds it when sources change.
 
+## Play in a browser
+
+A local [browser demo](web/index.html) loads the checked-in `dist/zerowave.bin`
+using [EmulatorJS's Atari 2600 support](https://emulatorjs.org/docs/systems/atari-2600/)
+and its `stella2014` core. No BIOS or ROM conversion is needed.
+
+```sh
+make serve
+```
+
+Open **http://127.0.0.1:8000/web/**, choose **CLICK TO PLAY**, then press **Space**
+at the game's `FIRE` screen. Arrow keys fire the beam; release all directions
+before each shot. Space starts/restarts or bombs, and Enter resets the game.
+The game fills the browser window, with the original picture proportions
+preserved and black bars where needed. The launch screen displays the ZeroWave
+insect-swarm cover art with a small blinking cream-colored **CLICK TO PLAY**
+prompt and controls near the bottom. The prompt stays steady during keyboard
+focus or when reduced motion is enabled. The full cover fits the window without
+cropping; on short landscape screens, the controls sit beside it.
+Click or tap anywhere on the cover to play. The play prompt also supports
+keyboard activation; the panel disappears as soon as it is activated, leaving
+the emulator's loading progress and game.
+Use the player toolbar's fullscreen button to hide the browser
+chrome; Escape returns to the full-window layout. The toolbar also provides
+pause, sound, and controller settings.
+The default gamepad mapping uses the D-pad, its first face button for fire,
+and Start for reset; it can be remapped in the player. A connected controller
+still needs hands-on validation.
+
+This command needs Python 3 and uses the packaged ROM without compiling it.
+Use `make serve WEB_PORT=8080` if port 8000 is occupied, or run
+`python3 -m http.server 8000 --bind 0.0.0.0` from the repository root.
+Stop the server with Ctrl+C. Opening the HTML directly as a `file://` URL will
+not work. After changing the assembly, run `make dist` to refresh the ROM first,
+then reload the browser page. Packaging also updates `web/rom-version.js` with
+the ROM's hash, so EmulatorJS fetches changed builds despite their identical
+8 KB size; unchanged builds can still use its cache.
+
+`make serve` listens on all IPv4 interfaces by default, allowing mobile testing
+on the same Wi-Fi/LAN. Run `hostname -I` on the computer to find its LAN address,
+then open `http://<LAN-IP>:8000/web/` on the phone. Use the address of the computer's Wi-Fi
+or Ethernet connection. If a server was already running before this setting
+changed, stop it with Ctrl+C and run `make serve` again; Python should report
+`Serving HTTP on 0.0.0.0 port 8000`. To listen only on this computer, use
+`make serve WEB_BIND=127.0.0.1`.
+Tap the cover to start the player, then use its on-screen controls to start the
+game and play.
+
+The page downloads EmulatorJS **4.2.3** and its core from the
+[official versioned CDN](https://emulatorjs.org/docs/cdn/), so internet access is
+required. EmulatorJS is an external dependency, not bundled in the release.
+The source archive includes the demo's HTML, CSS, JavaScript, and selected cover
+art. A static host could serve `web/` and `dist/` with the same relative layout;
+no public browser deployment has been configured.
+
+A mobile LAN playtest confirmed that the demo loads and runs. Automated checks
+cover the integration's configuration, asset URLs, ROM versioning, and release
+packaging. The native ROM's 111 automated tests cover gameplay and frame timing;
+the existing Stella captures provide visual reference scenes.
+
 ## Controls
 
 Use a joystick in the left port. These are Stella's default keyboard bindings;
@@ -66,8 +126,10 @@ custom mappings can be changed in its input settings.
 
 Press Space at `FIRE` to start. The upper-left number is your score; the five
 white marks on the right are health. Aim along an enemy's approach lane to shoot
-it. A square fills in when it enters bomb range. At zero health, `OVER` appears
-and the final score stays visible; release and press Space again, or use F2, to restart.
+it. A square fills in when it enters bomb range. At zero health, the final score
+and `LV` number stay visible, with `OVER` beside the level. They remain until you
+release and press fire/Space again, or use RESET/F2, to start a new game. Only the
+new game resets the score to 0000, the level to 01, and health to five.
 
 | Enemy | Damage accepted | Enemy health | Movement | Player damage on contact | Score |
 | --- | --- | ---: | --- | ---: | ---: |
@@ -300,7 +362,7 @@ appearances further.
 
 ## Validation and development
 
-`make check` runs 110 tests covering generated geometry, all joystick combinations,
+`make check` runs 111 tests covering generated geometry, all joystick combinations,
 button edges and exact cooldown boundaries, both startup banks, stack/guard
 integrity, fixed frame lengths, kernel write deadlines, and display fairness.
 Audio tests check exact TIA envelopes and expiry, simultaneous-event priority,

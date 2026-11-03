@@ -14,19 +14,16 @@ PrepareHud:
     sta HudHealth1
     lda HealthMask2,x
     sta HudHealth2
-    ldy GameMode
-    cpy #MODE_PLAY
-    beq .level
-    cpy #MODE_LEVEL_BREAK
-    beq .level
-    ; FIRE/OVER glyphs share a page (asserted by the asset generator), so their
-    ; two pointers need only one immediate high byte and separate low tables.
+    lda GameMode
+    bne .level            ; retain the final level alongside the score on death
+    ; Only the title replaces the level with FIRE. Its two glyph halves share
+    ; a page, so their pointers need only one immediate high byte.
     lda #>HudText0Left1
     sta HudStatus1+1
     sta HudStatus2+1
-    lda HudStatus1Lo,y
+    lda #<HudText0Left1
     sta HudStatus1
-    lda HudStatus2Lo,y
+    lda #<HudText0Left2
     sta HudStatus2
     jmp .score
 .level:

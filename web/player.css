@@ -1,0 +1,154 @@
+/* SPDX-FileCopyrightText: 2026 mastergray
+ * SPDX-License-Identifier: GPL-3.0-only */
+:root {
+  font-family: "Courier New", Courier, monospace;
+  color: #f5dfb3;
+  background: #000;
+  line-height: 1.6;
+}
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+.screen {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  background: #000;
+}
+#game { width: 100%; height: 100%; }
+/* EmulatorJS fits the original picture inside the available window. */
+#game canvas { image-rendering: pixelated; }
+.launch {
+  position: absolute;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  overflow-y: auto;
+  padding: max(16px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  background: #08090b;
+}
+.launch[hidden] { display: none; }
+.launch-content {
+  position: relative;
+  display: grid;
+  width: min(100%, calc((100vh - 32px) * 1087 / 1447));
+  width: min(100%, calc((100dvh - 32px) * 1087 / 1447));
+  margin: auto;
+  text-align: center;
+}
+.cover-art { display: block; grid-area: 1 / 1; width: 100%; height: auto; }
+.launch-actions {
+  grid-area: 1 / 1;
+  align-self: end;
+  min-width: 0;
+  margin: 0 5% 5%;
+  text-shadow: 0 1px 4px #000;
+}
+.start-action { display: flex; justify-content: center; min-height: 48px; }
+.start-placeholder { margin: auto; color: #d4c5aa; font-size: .75rem; }
+/* Retain the pinned EmulatorJS button's click/touch handlers. Override its
+   stock position, pill shape and pulse within our start screen. */
+#start-action .ejs_start_button {
+  position: static;
+  inset: auto !important;
+  transform: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  min-height: 48px;
+  margin: 0;
+  padding: 12px 24px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #f5dfb3 !important;
+  font: 400 1rem/1.4 "Courier New", Courier, monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 4px #000;
+  box-shadow: none;
+  cursor: pointer;
+  animation: start-blink 1.2s step-end infinite;
+  transition: none;
+}
+/* Opacity leaves the full-cover click/touch target active between flashes. */
+@keyframes start-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+/* Stretch the original button's hit area across the cover. A tap still lands
+   directly on EmulatorJS's button, preserving its native touch detection. */
+#start-action .ejs_start_button::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+#start-action .ejs_start_button:hover,
+#start-action .ejs_start_button:active {
+  color: #fff4df !important;
+  text-decoration: none;
+}
+#start-action .ejs_start_button:focus-visible { outline: none; animation: none; }
+#start-action .ejs_start_button:focus-visible::after {
+  outline: 1px solid #f5dfb3;
+  outline-offset: 5px;
+}
+@media (prefers-reduced-motion: reduce) {
+  #start-action .ejs_start_button { animation: none; }
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 14px;
+  margin: 6px 0 0;
+  color: #d4c5aa;
+  font-size: .65rem;
+}
+.controls span { white-space: nowrap; }
+/* Keep the full cover and usable controls on short, wide screens. */
+@media (max-height: 540px) and (min-aspect-ratio: 1/1) {
+  .launch-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(20px, 5vw, 64px);
+    width: 100%;
+  }
+  .cover-art {
+    width: auto;
+    max-width: 45%;
+    max-height: calc(100vh - 32px);
+    max-height: calc(100dvh - 32px);
+    object-fit: contain;
+  }
+  .launch-actions { align-self: center; max-width: 340px; margin: 0; }
+  .controls { display: grid; }
+}
+.notice {
+  position: absolute;
+  z-index: 11;
+  top: max(16px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 32px);
+  margin: 0;
+  padding: 10px 16px;
+  color: #e8e8e8;
+  background: #000;
+  border: 1px solid #777;
+  font-size: .85rem;
+  text-align: center;
+  pointer-events: none;
+}
+.notice:empty, .notice[hidden] { display: none; }
+.notice.error { color: #ffb1b9; }

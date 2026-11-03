@@ -514,23 +514,17 @@ def generate():
     for plane in range(6):
         render.append(byte_lines(f"HudPlane{plane}", [row[plane] for row in hud], 32))
     render.append("    ELSE\n")
-    setup.append("    IF DISPLAY_TEST = 0\n")
-    for plane in (1, 2):
-        setup.append(f"HudStatus{plane}Lo:\n    .byte " +
-                     ",".join(f"<HudText{mode}Left{plane}" for mode in range(3)) + "\n")
-    setup.append("    ENDIF\n")
     (OUT / "render_tables.inc").write_text("".join(setup))
-    for mode, word in enumerate(("FIRE", "PLAY", "OVER")):
-        rows = [encode_row({4 + i * 4 + bit for i, char in enumerate(word)
+    for word, offset, planes in (("FIRE", 4, (1, 2)), ("OVER", 24, (4, 5))):
+        rows = [encode_row({offset + i * 4 + bit for i, char in enumerate(word)
                             for bit in range(3) if FONT[char][y] & (4 >> bit)}) for y in range(5)]
-        for plane in (1, 2):
-            label = f"HudText{mode}Left{plane}"
-            if mode == 1:
-                render.append(f"{label} = HudText0Left{plane}\n")
-            else:
-                render.append(page_safe_bytes(label, [row[plane] for row in rows]))
-    for label in ("HudText0Left2", "HudText2Left1", "HudText2Left2"):
-        render.append(f"    IF (>{label}) != (>HudText0Left1)\n        ERR\n    ENDIF\n")
+        for plane in planes:
+            label = f"HudText0Left{plane}" if word == "FIRE" else f"HudOverRight{plane - 3}"
+            # One X index selects blank rows during play or OVER after death;
+            # both halves stay on-page for fixed four-cycle indexed loads.
+            prefix = [] if word == "FIRE" else [0] * 5
+            render.append(page_safe_bytes(label, prefix + [row[plane] for row in rows]))
+    render.append("    IF (>HudText0Left2) != (>HudText0Left1)\n        ERR\n    ENDIF\n")
     level_label = [encode_row({4 + i * 4 + bit for i, char in enumerate("LV")
                               for bit in range(3) if FONT[char][y] & (4 >> bit)})[1] for y in range(5)]
     render.append(page_safe_bytes("LevelLabel", level_label))
