@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 mastergray
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Package corresponding source from the working tree, including local changes."""
+"""Package corresponding source and sync the complete browser upload folder."""
 import gzip
 import hashlib
 from pathlib import Path
@@ -15,8 +15,10 @@ ROOT = Path(__file__).resolve().parents[1]
 # toolchains, reference checkouts, Git history, caches, or machine configuration.
 ROOT_FILES = ("LICENSE", "NOTICE", "README.md", "Makefile", ".gitignore")
 SOURCE_PATTERNS = (
-    "src/*.asm", "src/*.inc", "config/*.json", "tools/*.py", "tests/*.py",
+    "src/*.asm", "src/*.inc", "config/*.json", "tools/*.py", "tools/*.mjs", "tests/*.py",
     "docs/*.md", "docs/screenshots/*.png",
+    # Include browser sources, but exclude its copied ROM/archive/notices so
+    # packaging cannot recursively embed the previous release archive.
     "web/*.html", "web/*.css", "web/*.js",
     # Only the selected splash cover is needed by the browser demo.
     "web/img/Zerowave_ Insectoid Swarm Assault.png",
@@ -38,6 +40,9 @@ def main():
     sources = {ROOT / name for name in ROOT_FILES}
     for pattern in SOURCE_PATTERNS:
         sources.update(ROOT.glob(pattern))
+    # The vendored runtime, cores, licenses and upstream source snapshots travel
+    # with our source package. The web-root release copies remain excluded.
+    sources.update(path for path in (ROOT / "web/emulatorjs").rglob("*") if path.is_file())
     archive = destination / "zerowave-source.tar.gz"
     pending = archive.with_suffix(archive.suffix + ".tmp")
     try:
@@ -60,7 +65,10 @@ def main():
         pending.unlink(missing_ok=True)
     for name in ("LICENSE", "NOTICE"):
         shutil.copyfile(ROOT / name, destination / name)
-    print(f"Packaged {len(sources)} source files and GPL notices in dist/.")
+    # Keep web/ ready to upload on its own, at any static-host directory.
+    for name in ("zerowave.bin", "zerowave-source.tar.gz", "LICENSE", "NOTICE"):
+        shutil.copyfile(destination / name, ROOT / "web" / name)
+    print(f"Packaged {len(sources)} source files and GPL notices in dist/; synced web/ release files.")
 
 
 if __name__ == "__main__":

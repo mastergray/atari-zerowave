@@ -1,0 +1,49 @@
+Atari ZeroWave
+Copyright (C) 2026 mastergray
+
+Except where otherwise noted, the original code, data, artwork, and
+documentation in this project are licensed under the GNU General Public
+License, version 3 only (SPDX-License-Identifier: GPL-3.0-only).
+See LICENSE for the complete terms. This game is provided without warranty.
+
+Release files
+-------------
+zerowave.bin            Playable NTSC Atari 2600 ROM, 8 KiB F8
+zerowave-source.tar.gz  Corresponding source, build scripts, and notices
+LICENSE                 GNU GPL version 3
+NOTICE                  This notice and source/build instructions
+
+Keep the corresponding source archive and these notices available with the
+ROM when redistributing this release. If you distribute a modified ROM,
+provide its corresponding modified source under GPLv3 as well. GPLv3 allows
+commercial distribution and private modifications; see LICENSE for details.
+
+Building from the source archive
+-------------------------------
+Extract zerowave-source.tar.gz and enter zerowave-source/.
+With Git, Make, a C compiler, and Python 3 installed, run:
+
+    make bootstrap
+    make all
+
+Bootstrap downloads the pinned DASM assembler and py65 test CPU. The build
+produces build/atari-zerowave.bin and the release files in dist/, with copies
+inside web/ for a complete browser upload.
+Use make check to run the ROM tests. Stella is needed to play the ROM, not
+to build it. See README.md for controls and other development instructions.
+
+Third-party material
+--------------------
+vendor/dasm/vcs.h is an unmodified header from DASM 2.20.14.1, commit
+09270863f5f70e5200c30d2778f654ff7a40adba. DASM is licensed under GPL version 2
+or later. Its original license and provenance remain in vendor/dasm/LICENSE
+and vendor/dasm/README.md inside the source archive.
+
+DASM, py65, and desktop Stella retain their respective licenses. The assembler,
+test CPU package, and desktop emulator are not bundled in this release.
+
+The browser runtime is bundled separately under web/emulatorjs/. It contains
+EmulatorJS 4.2.3 and its Stella 2014/RetroArch WebAssembly cores. Their original
+licenses, upstream source snapshots, provenance and local modifications are
+documented in web/emulatorjs/README.md, LICENSE, licenses/ and sources/. These
+third-party components retain their upstream copyrights and license terms.

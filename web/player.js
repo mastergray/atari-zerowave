@@ -16,16 +16,16 @@
     };
 
     if (window.location.protocol === "file:") {
-        fail("Run make serve from the ZeroWave folder, then open http://127.0.0.1:8000/web/.");
+        fail("Serve this folder with python3 -m http.server 8000, then open http://127.0.0.1:8000/.");
         return;
     }
 
     // Pin the wrapper and its Stella 2014 core to one release. The original
-    // cartridge is fetched directly from dist; no JavaScript game port is used.
-    const dataPath = "https://cdn.emulatorjs.org/4.2.3/data/";
+    // cartridge is served alongside this page, keeping web/ portable.
+    const dataPath = new URL("emulatorjs/data/", window.location.href).href;
     window.EJS_player = "#game";
     window.EJS_core = "atari2600";
-    const romUrl = new URL("../dist/zerowave.bin", window.location.href);
+    const romUrl = new URL("zerowave.bin", window.location.href);
     // Each ROM hash gets its own cache entry, even though F8 size never changes.
     romUrl.searchParams.set("v", window.ZEROWAVE_ROM_VERSION);
     window.EJS_gameUrl = romUrl.href;
@@ -57,6 +57,7 @@
     window.EJS_defaultControls = { 0: controls, 1: {}, 2: {}, 3: {} };
     window.EJS_Buttons = {
         fullscreen: true,
+        netplay: false,
         cheat: false,
         screenRecord: false,
         saveSavFiles: false,
@@ -92,6 +93,6 @@
 
     const loader = document.createElement("script");
     loader.src = dataPath + "loader.js";
-    loader.onerror = () => fail("The player could not load. Check your internet connection, then reload this page.");
+    loader.onerror = () => fail("The player could not load. Check that the complete web folder was uploaded, then reload this page.");
     document.body.appendChild(loader);
 })();

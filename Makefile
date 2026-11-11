@@ -13,7 +13,7 @@ DIST_ROM := dist/zerowave.bin
 GENERATED := build/generated/assets.stamp
 SOURCE := $(wildcard src/*.asm src/*.inc) vendor/dasm/vcs.h
 
-.PHONY: all bootstrap dist check test run serve run-display debug stella-check clean
+.PHONY: all bootstrap dist check test web-check run serve run-display debug stella-check clean
 all: $(ROM) $(DISPLAY_ROM) dist
 
 bootstrap:
@@ -44,6 +44,9 @@ check: all
 	$(PYTHON) -m unittest discover -s tests -v
 
 test: check
+
+web-check:
+	node tools/verify_web_bundle.mjs
 
 run: all
 	$(STELLA) $(STELLA_AUDIO) -type F8 -format NTSC -lc JOYSTICK -rc JOYSTICK -tv.phosphor byrom -pp NO $(ROM)

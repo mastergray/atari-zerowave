@@ -4,6 +4,8 @@ A native Atari 2600 prototype of the stationary-turret game described in
 [the port outline](docs/PORT_OUTLINE.md) and [implementation spec](docs/IMPLEMENTATION_SPEC.md).
 The cartridge targets NTSC, uses ordinary 8 KiB F8 banking, and needs no extra RAM.
 
+**[Play ZeroWave online](https://mastergray.com/zerowave/)**
+
 The current build has one beam shot per joystick flick, nine enemy variants,
 five player health points, a four-digit score, and levels that introduce variants
 gradually. It keeps the thin beam, expanding bomb ring, destruction bursts, and
@@ -42,6 +44,8 @@ up to date. `dist/` also contains `LICENSE`, `NOTICE`, and
 changes are included. Packaging is reproducible: unchanged source produces the
 same archive, without timestamp-only Git changes. Commit the refreshed release
 files with source changes. Share the matching source archive and notices with the ROM.
+Packaging also copies all four release files into `web/`, keeping that folder
+ready to upload on its own. Commit those refreshed copies with the release.
 The development ROM remains in `build/` alongside symbols, assembly
 listing, and a checksum/bank-usage report. `make debug` opens Stella's debugger.
 `make clean` removes generated output under `build/`, including captures, and
@@ -54,7 +58,10 @@ Make is optional for launching an existing ROM: open the `.bin` in Stella or run
 
 ## Play in a browser
 
-A local [browser demo](web/index.html) loads the checked-in `dist/zerowave.bin`
+Play at **[mastergray.com/zerowave](https://mastergray.com/zerowave/)**,
+or serve the same game locally using the instructions below.
+
+A local [browser demo](web/index.html) loads the checked-in `web/zerowave.bin`
 using [EmulatorJS's Atari 2600 support](https://emulatorjs.org/docs/systems/atari-2600/)
 and its `stella2014` core. No BIOS or ROM conversion is needed.
 
@@ -85,9 +92,9 @@ This command needs Python 3 and uses the packaged ROM without compiling it.
 Use `make serve WEB_PORT=8080` if port 8000 is occupied, or run
 `python3 -m http.server 8000 --bind 0.0.0.0` from the repository root.
 Stop the server with Ctrl+C. Opening the HTML directly as a `file://` URL will
-not work. After changing the assembly, run `make dist` to refresh the ROM first,
-then reload the browser page. Packaging also updates `web/rom-version.js` with
-the ROM's hash, so EmulatorJS fetches changed builds despite their identical
+not work. After changing the assembly, run `make dist` to refresh both ROM copies
+and their source archives, then reload the browser page. Packaging also updates
+`web/rom-version.js` with the ROM's hash, so EmulatorJS fetches changed builds despite their identical
 8 KB size; unchanged builds can still use its cache.
 
 `make serve` listens on all IPv4 interfaces by default, allowing mobile testing
@@ -100,17 +107,52 @@ changed, stop it with Ctrl+C and run `make serve` again; Python should report
 Tap the cover to start the player, then use its on-screen controls to start the
 game and play.
 
-The page downloads EmulatorJS **4.2.3** and its core from the
-[official versioned CDN](https://emulatorjs.org/docs/cdn/), so internet access is
-required. EmulatorJS is an external dependency, not bundled in the release.
-The source archive includes the demo's HTML, CSS, JavaScript, and selected cover
-art. A static host could serve `web/` and `dist/` with the same relative layout;
-no public browser deployment has been configured.
+EmulatorJS **4.2.3**, its Stella 2014 cores, compression workers, and localization
+files are bundled in [web/emulatorjs/](web/emulatorjs/README.md). The player loads
+them from the same website as the ROM. No CDN, external fonts, or remote emulator
+service is needed; the bundled copy's update check and missing-core CDN fallback
+are disabled. A local web server can run the game without internet access.
+Upstream licenses and source snapshots accompany the runtime. The source archive
+includes the demo, selected cover art, and bundled emulator files. The copied
+release files at the `web/` root are excluded to prevent recursive packaging.
 
-A mobile LAN playtest confirmed that the demo loads and runs. Automated checks
-cover the integration's configuration, asset URLs, ROM versioning, and release
-packaging. The native ROM's 111 automated tests cover gameplay and frame timing;
-the existing Stella captures provide visual reference scenes.
+### Upload to a website
+
+Upload **the contents of `web/`** into a `zerowave/` directory on your static
+web host. Include the complete `img/` and `emulatorjs/` subfolders and all four
+release files. The resulting layout is:
+
+```text
+zerowave/
+├── index.html
+├── player.css
+├── player.js
+├── rom-version.js
+├── img/
+├── emulatorjs/
+├── zerowave.bin
+├── zerowave-source.tar.gz
+├── LICENSE
+└── NOTICE
+```
+
+Open **https://your-site/zerowave/**. A standard static host redirects
+`/zerowave` to `/zerowave/` and serves `index.html`. The player's assets and ROM
+use paths relative to this folder, so it also works at the site root or another
+subdirectory. Everything to upload is inside `web/`. Refresh the entire folder
+after a new build so the ROM, its version stamp, and the source archive stay together.
+
+To preview just the upload folder locally, run
+`python3 -m http.server 8000 --directory web` from the repository root and open
+`http://127.0.0.1:8000/`. The web host does not need to run a build step.
+
+With Node.js 22 or later installed, run `make web-check` to verify bundled file
+hashes, loader URLs at root and nested paths, ROM versioning, and extraction and
+selection of all four local core bundles. It also checks that missing cores do
+not trigger a remote fallback. This check does not render or play the game.
+The earlier CDN-based demo passed a mobile LAN playtest; the self-hosted bundle
+still needs a browser playtest. The native ROM's 111 automated tests cover
+gameplay and frame timing; the existing Stella captures provide visual references.
 
 ## Controls
 
@@ -472,7 +514,9 @@ corresponding source available as the license requires. Private modifications
 and commercial distribution are allowed. The game comes without warranty.
 
 The vendored DASM header retains its upstream license and attribution in
-[vendor/dasm/](vendor/dasm/README.md). Locally downloaded tools and the separate
+[vendor/dasm/](vendor/dasm/README.md). The bundled browser runtime, core licenses,
+and source snapshots are documented in [web/emulatorjs/](web/emulatorjs/README.md).
+Locally downloaded tools and the separate
 Godot reference checkout retain their own licensing and are not included in
 the release source archive.
 
